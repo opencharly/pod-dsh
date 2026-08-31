@@ -1,7 +1,7 @@
 version: 2026.232.0520
 dsh:
     candy:
-        version: 2026.226.1600
+        version: 2026.243.0100
         description: |
             Installs the deepseek-harness dsh CLI globally via npm and serves the
             dsh web Web UI (port 3080) as a supervised service. The candy depends
@@ -19,8 +19,8 @@ dsh:
             package, `dsh --version`/`--help`, node >= 22.19.0, the running
             service, and the HTTP 200 the web UI answers on 127.0.0.1:3080.
         require:
-            - '@github.com/opencharly/layer-nodejs:v2026.235.2056'
-            - '@github.com/opencharly/layer-supervisord:v2026.235.2056'
+            - '@github.com/opencharly/layer-nodejs:v2026.239.1624'
+            - '@github.com/opencharly/layer-supervisord:v2026.240.0121'
         package:
             - socat
         env:
