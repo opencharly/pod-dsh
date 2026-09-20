@@ -1,4 +1,27 @@
-version: 2026.232.0520
+version: 2026.249.2125
+defaults:
+    platform:
+        - linux/amd64
+    tag: auto
+    registry: ghcr.io/opencharly
+    build:
+        - rpm
+    merge:
+        auto: false
+        max_mb: 128
+import:
+    # The canonical fedora builder chain, flat-imported so the npm builder
+    # carries the RPM Fusion repos (codec-devel packages: ffmpeg-devel /
+    # x264-devel) that build-toolchain installs. Flat import of the three box
+    # FILES — not the distro-fedora NAMESPACE, whose candy corpus
+    # (charly-marketplace) references the remote opencharly/pod-dsh and would
+    # shadow this project's local `dsh` (a validate warning).
+    - '@github.com/opencharly/distro-fedora/box/fedora/charly.yml:v2026.256.1134'
+    - '@github.com/opencharly/distro-fedora/box/fedora-nonfree/charly.yml:v2026.256.1134'
+    - '@github.com/opencharly/distro-fedora/box/fedora-builder/charly.yml:v2026.256.1134'
+discover:
+    - path: candy
+      recursive: true
 dsh:
     candy:
         version: 2026.243.0100
@@ -171,3 +194,123 @@ dsh-skill:
 
             - `/charly-image:layer` — candy authoring reference (`charly.yml` schema, task verbs, service declarations)
             - `/charly-check:check` — declarative testing (`check:` block, `charly check box`, `charly check live`)
+
+# =============================================================================
+# dsh-app + check-dsh-pod — the R10 bed for the deepseek-harness dsh candy and
+# the compiled-in plugin-dsh management plugin (command:dsh + verb:dsh). Moved
+# here from opencharly/charly's charly.yml, which cannot exercise this candy as
+# in-development code (the bed's dev-tree override resolves the bed project's own
+# superproject, not the candy owner), so the artifact owner tests its own candy
+# locally.
+#
+# The bed builds a minimal Fedora box composing nodejs + the LOCAL dsh candy.
+# The npm builder (the local fedora-builder above) installs @deepseek-ai/dsh
+# 0.1.0-rc.6 globally; node-pty (a dsh dependency) ships NO linux-x64 prebuild
+# in the npm tarball, so its install script falls through to node-gyp — the
+# builder's build-toolchain provides gcc/make/python3, and the compiled pty.node
+# is N-API (ABI-stable across node versions, so building against the builder's
+# node runs on the image's node). The dsh service boots `dsh web` (loopback-only,
+# 127.0.0.1:3080) and the charly-owned dsh-entrypoint exec's a socat forwarder
+# exposing it on eth0:3081.
+# =============================================================================
+dsh-app:
+    candy:
+        version: 2026.243.0300
+        base: quay.io/fedora/fedora:43
+        description: |-
+            The deepseek-harness box: a minimal Fedora base composing the nodejs and
+            local dsh candies. The npm builder installs @deepseek-ai/dsh 0.1.0-rc.6
+            globally (node-pty's native module builds via node-gyp in the
+            fedora-builder's build-toolchain); the dsh service boots the
+            loopback-bound web UI and a socat forwarder exposes it on the container's
+            eth0. The candy's checks run in BOTH contexts, so `charly check box dsh-app`
+            proves the CLI installs and the node floor holds without deploying, and
+            `charly check live` re-proves the same shape against the running pod plus
+            the service + web UI.
+        # The distro tag chain is load-bearing (the docs-site-app precedent): the
+        # package resolver walks the IMAGE's declared chain most-specific-first, so a
+        # box that declares `base:` alone matches no per-distro section and silently
+        # installs nothing.
+        distro:
+            - fedora:43
+            - fedora
+        # The npm builder resolves to this project's LOCAL fedora-builder (above);
+        # a namespace-qualified base would contribute no builder map at all.
+        builder:
+            npm: fedora-builder
+        candy:
+            - '@github.com/opencharly/layer-nodejs:v2026.239.1624'
+            - dsh
+check-dsh-pod:
+    pod:
+        image: dsh-app
+        disposable: true
+        lifecycle: dev
+        description: >-
+            R10 bed for the deepseek-harness dsh candy + the compiled-in plugin-dsh management plugin. Deploying it to steady state proves the dsh-app box — whose image build ran the npm builder (installing @deepseek-ai/dsh 0.1.0-rc.6 globally, node-pty's native module built via node-gyp) and asserted the CLI + node floor — builds, starts, and stays up with the dsh service running, the loopback-bound web UI answering HTTP 200 in-box AND through the socat forwarder on the published port, the four dsh: verb methods dispatching in-box, and the compiled-in `charly dsh status` command reaching the deployed box over the pod-lifecycle reverse channel.
+        plan:
+            - check: the dsh-app pod reached steady state (the dsh box runs)
+              id: dsh-pod-running
+              exit_status: 0
+              stdout:
+                - contains: '"kind": "pod"'
+                - contains: check-dsh-pod
+              context:
+                - runtime
+              command:
+                command: ${CHARLY_BIN} status --json
+                in_container: false
+            - check: the dsh service is running under the init system in the pod
+              id: dsh-service-running
+              service:
+                service: dsh
+                running: true
+              context: [runtime]
+            - check: the dsh web UI answers HTTP 200 on 127.0.0.1:3080 in-box
+              id: dsh-web-inbox
+              timeout: 30s
+              context: [runtime]
+              command: curl -fsS -o /dev/null http://127.0.0.1:3080/
+            - check: the dsh web UI answers HTTP 200 through the published port (the socat forwarder)
+              id: dsh-web-published
+              timeout: 30s
+              context: [runtime]
+              http:
+                http: "http://127.0.0.1:${HOST_PORT:3081}/"
+                status: 200
+            - check: node is at least 22.19.0 (the deepseek-harness dsh floor)
+              id: dsh-node-floor
+              exit_status: 0
+              context: [runtime]
+              command: |
+                node -e 'const [maj,min]=process.versions.node.split(".").map(Number); if (maj<22||(maj===22&&min<19)) process.exit(1)'
+            - check: the dsh version verb reports the dsh version in-box
+              id: dsh-verb-version
+              dsh:
+                method: version
+              context: [runtime]
+            - check: the dsh web-running verb probes the web UI in-box
+              id: dsh-verb-web-running
+              dsh:
+                method: web-running
+              context: [runtime]
+            - check: the dsh profile-list verb lists the profiles in-box
+              id: dsh-verb-profile-list
+              dsh:
+                method: profile-list
+              context: [runtime]
+            - check: the dsh plugin-list verb lists the web profile's plugins in-box
+              id: dsh-verb-plugin-list
+              dsh:
+                method: plugin-list
+              context: [runtime]
+            - check: the compiled-in charly dsh status command reaches the deployed box over the reverse channel
+              id: dsh-cmd-status
+              exit_status: 0
+              stdout:
+                - contains: "web UI: HTTP 200 on 127.0.0.1:3080"
+              context:
+                - runtime
+              command:
+                command: ${CHARLY_BIN} dsh status --box check-dsh-pod
+                in_container: false
