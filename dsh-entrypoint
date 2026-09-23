@@ -1,33 +1,65 @@
 #!/usr/bin/env bash
 set -e
 
-# dsh-web-app 0.1.0-rc.6 rejects --host 0.0.0.0 (RCE safety): it would expose
-# remote code execution to the network. The web app binds 127.0.0.1:3080 ONLY.
+# dsh-web-app rejects --host 0.0.0.0 (RCE safety) and binds 127.0.0.1:3080 ONLY.
 # A container's published port maps to the container's eth0 (0.0.0.0), not
-# loopback — so run `dsh web` in the background on loopback and let socat
-# expose it on eth0. socat CANNOT share port 3080: Linux forbids a wildcard
-# (0.0.0.0) and a specific (127.0.0.1) listener on the same port — whichever
-# binds second fails with EADDRINUSE (SO_REUSEADDR does not permit the pair).
-# So socat listens on 0.0.0.0:3081 and forwards to 127.0.0.1:3080; the
-# published port (auto-allocated host port -> container 3081) reaches the web
-# app through socat. On the vm substrate the ssh -L forward targets loopback
-# directly — socat just doesn't hurt there.
+# loopback — so run `dsh web` on loopback and let socat expose it on eth0.
+# socat CANNOT share port 3080: Linux forbids a wildcard (0.0.0.0) and a
+# specific (127.0.0.1) listener on the same port — whichever binds second fails
+# with EADDRINUSE (SO_REUSEADDR does not permit the pair). So socat listens on
+# 0.0.0.0:3081 and forwards to 127.0.0.1:3080; the published port (auto-allocated
+# host port -> container 3081) reaches the web app through socat. On the vm
+# substrate the ssh -L forward targets loopback directly — socat just doesn't
+# hurt there.
+#
+# The web UI requires authentication (dsh-web-app >= 0.1.5-rc.x): each process
+# mints a random launch token and `dsh web` prints it in its
+# `dsh web: http://127.0.0.1:3080/?token=...` readiness line. The supervised
+# wrapper stays RUNNING regardless of the web app's fate (a crash is caught by
+# supervisord only if the wrapper exits), so the service probe alone cannot tell
+# a live web app from a dead one. Capture the token from that readiness line,
+# persist it to $DSH_HOME/web-token, and let the in-box checks authenticate with
+# it. Persisting it on the DSH_HOME volume also survives the fresh `charly
+# update` rebuild the R10 bed performs.
 #
 # The dsh binary lives in the npm-global bin (NPM_CONFIG_PREFIX from the nodejs
 # candy); the service environment may not carry the candy's path_append, so set
 # PATH explicitly. Derive the homedir from passwd when $HOME is unset (the same
 # getent discovery the nodejs candy's pnpm check prescribes — live-container
 # execs provide no HOME).
-export PATH="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}/.npm-global/bin:$PATH"
+HOME_DIR="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
+export PATH="${HOME_DIR}/.npm-global/bin:$PATH"
+DSH_HOME_DIR="${DSH_HOME:-${HOME_DIR}/.dsh}"
+mkdir -p "${DSH_HOME_DIR}"
+TOKEN_FILE="${DSH_HOME_DIR}/web-token"
+# Drop any stale token first: a check must never authenticate with the previous
+# process's launch token (the new one is written before socat starts serving).
+rm -f "${TOKEN_FILE}"
 
-dsh web &
-# Wait for the web app to bind loopback before socat starts forwarding, so the
-# published port is live the moment it accepts connections. Bounded: if dsh web
-# never comes up, socat still runs and the in-box check reports the failure.
-for i in $(seq 1 60); do
-  if (exec 3<>/dev/tcp/127.0.0.1/3080) 2>/dev/null; then
+WEB_LOG="$(mktemp)"
+dsh web --no-open >"${WEB_LOG}" 2>&1 &
+WEB_PID=$!
+
+# Wait for the authenticated URL line (or for dsh web to die). Bounded: if the
+# web app never comes up, socat still runs and the in-box checks report it.
+for _ in $(seq 1 60); do
+  if grep -q 'token=' "${WEB_LOG}" 2>/dev/null; then
+    break
+  fi
+  if ! kill -0 "${WEB_PID}" 2>/dev/null; then
     break
   fi
   sleep 1
 done
+
+TOKEN="$(sed -n 's#.*[?&]token=\([^ &]*\).*#\1#p' "${WEB_LOG}" | head -n 1)"
+if [ -n "${TOKEN}" ]; then
+  printf '%s' "${TOKEN}" > "${TOKEN_FILE}"
+  chmod 0644 "${TOKEN_FILE}"
+fi
+
+# Surface the web app's own startup output — the token line, or the crash
+# trace — through the supervisor log, so a dead web app is never silent.
+cat "${WEB_LOG}" >&2 || true
+
 exec socat TCP-LISTEN:3081,fork,reuseaddr TCP:127.0.0.1:3080
