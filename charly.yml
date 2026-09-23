@@ -336,16 +336,13 @@ check-dsh-pod:
               dsh:
                 method: version
               context: [runtime]
-            # dsh-verb-web-running and dsh-cmd-status probe the web UI TOKENLESSLY
-            # inside plugin-dsh (a SEPARATE repo): verbWebRunning and DshStatusCmd
-            # both run `curl -fsS -o /dev/null http://127.0.0.1:3080/` with no token
-            # and no cookie, so on dsh-web-app >= 0.1.5-rc.x they get the auth
-            # fence's 401. They cannot be made to authenticate from this repo —
-            # the fix belongs in plugin-dsh, which must read the launch token the
-            # dsh candy's entrypoint persists to $DSH_HOME/web-token. The fix is
-            # opencharly/plugin-dsh#5 (fix/token-aware-web-probe); until it lands
-            # and is compiled into a charly build, these two steps correctly
-            # report that defect.
+            # dsh-verb-web-running and dsh-cmd-status are owned by plugin-dsh (a
+            # SEPARATE repo): verbWebRunning and DshStatusCmd read the launch token
+            # the dsh candy's entrypoint persists to $DSH_HOME/web-token and
+            # authenticate with ?token=<token>. They were fixed by
+            # opencharly/plugin-dsh#5 (MERGED, squash 819f6f9) and pass once that
+            # plugin is compiled into the charly build the bed runs (as it is in
+            # the R10 run recorded on this PR).
             - check: the dsh web-running verb probes the web UI in-box
               id: dsh-verb-web-running
               dsh:
