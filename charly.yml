@@ -1,4 +1,3 @@
-version: 2026.261.1747
 defaults:
     platform:
         - linux/amd64
@@ -24,7 +23,6 @@ discover:
       recursive: true
 dsh:
     candy:
-        version: 2026.266.2300
         description: |
             Installs the deepseek-harness dsh CLI globally via npm and serves the
             dsh web Web UI (port 3080) as a supervised service. The candy depends
@@ -244,7 +242,6 @@ dsh-skill:
 # =============================================================================
 dsh-app:
     candy:
-        version: 2026.266.2300
         base: quay.io/fedora/fedora:43
         description: |-
             The deepseek-harness box: a minimal Fedora base composing the nodejs and
