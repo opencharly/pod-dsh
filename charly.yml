@@ -1,4 +1,3 @@
-version: 2026.261.1747
 defaults:
     platform:
         - linux/amd64
@@ -16,15 +15,14 @@ import:
     # FILES — not the distro-fedora NAMESPACE, whose candy corpus
     # (charly-marketplace) references the remote opencharly/pod-dsh and would
     # shadow this project's local `dsh` (a validate warning).
-    - '@github.com/opencharly/distro-fedora/box/fedora/charly.yml:v2026.256.1134'
-    - '@github.com/opencharly/distro-fedora/box/fedora-nonfree/charly.yml:v2026.256.1134'
-    - '@github.com/opencharly/distro-fedora/box/fedora-builder/charly.yml:v2026.256.1134'
+    - '@github.com/opencharly/distro-fedora/box/fedora/charly.yml:v2026.269.2230'
+    - '@github.com/opencharly/distro-fedora/box/fedora-nonfree/charly.yml:v2026.269.2230'
+    - '@github.com/opencharly/distro-fedora/box/fedora-builder/charly.yml:v2026.269.2230'
 discover:
     - path: candy
       recursive: true
 dsh:
     candy:
-        version: 2026.266.2300
         description: |
             Installs the deepseek-harness dsh CLI globally via npm and serves the
             dsh web Web UI (port 3080) as a supervised service. The candy depends
@@ -138,7 +136,6 @@ dsh:
               http:
                 http: http://127.0.0.1:${HOST_PORT:3081}/
                 status: 401
-
 dsh-skill:
     skill:
         name: dsh
@@ -223,7 +220,6 @@ dsh-skill:
 
             - `/charly-image:layer` — candy authoring reference (`charly.yml` schema, task verbs, service declarations)
             - `/charly-check:check` — declarative testing (`check:` block, `charly check box`, `charly check live`)
-
 # =============================================================================
 # dsh-app + check-dsh-pod — the R10 bed for the deepseek-harness dsh candy and
 # the compiled-in plugin-dsh management plugin (command:dsh + verb:dsh). Moved
@@ -244,7 +240,6 @@ dsh-skill:
 # =============================================================================
 dsh-app:
     candy:
-        version: 2026.266.2300
         base: quay.io/fedora/fedora:43
         description: |-
             The deepseek-harness box: a minimal Fedora base composing the nodejs and
