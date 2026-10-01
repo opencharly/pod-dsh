@@ -48,8 +48,8 @@ dsh:
             running service, the persisted token file, and the HTTP 200 the
             token-authenticated web UI answers on 127.0.0.1:3080.
         require:
-            - '@github.com/opencharly/layer-nodejs:v2026.239.1624'
-            - '@github.com/opencharly/layer-supervisord:v2026.240.0121'
+            - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
+            - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
         package:
             - socat
         env:
@@ -265,7 +265,7 @@ dsh-app:
         builder:
             npm: fedora-builder
         candy:
-            - '@github.com/opencharly/layer-nodejs:v2026.239.1624'
+            - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
             - dsh
 check-dsh-pod:
     pod:
