@@ -1,0 +1,88 @@
+# The dsh-web candy — the DeepSeek Harness web UI (loopback-only) plus the
+# socat forwarder that exposes it on the container's eth0.
+#
+# Concern split (R3): this candy composes the `dsh` CLI candy and adds ONLY the
+# web service. The CLI install lives in candy/dsh; the terminal UI in
+# candy/dsh-tui.
+dsh-web:
+    candy:
+        description: |
+            Serves the DeepSeek Harness web Web UI (port 3080) as a supervised
+            service. The web app binds 127.0.0.1:3080 ONLY — dsh-web-app
+            0.2.0-rc.2 hard-rejects --host 0.0.0.0 (RCE safety) — so a
+            charly-owned entrypoint runs `dsh web` in the background and
+            exec's a socat forwarder that listens on the container's eth0
+            (0.0.0.0:3081) and forwards to loopback. socat cannot share port
+            3080 (Linux forbids a wildcard + loopback pair on one port), so the
+            published port (auto-allocated host port -> container 3081) reaches
+            the web UI on the pod substrate. The web UI authenticates every
+            request: each process mints a random launch token and `dsh web`
+            prints it in its `dsh web: http://127.0.0.1:3080/?token=...`
+            readiness line. The entrypoint captures that token and persists it
+            to $DSH_HOME/web-token (on the dsh volume, so it survives the fresh
+            `charly update` rebuild), and the in-box checks authenticate with
+            `curl "http://127.0.0.1:3080/?token=$(cat $DSH_HOME/web-token)"`.
+            Every fact is observable: the running service, the persisted token
+            file, and the HTTP 200 the token-authenticated web UI answers on
+            127.0.0.1:3080.
+        require:
+            - dsh
+            - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
+        package:
+            - socat
+        env:
+            DSH_HOME: "~/.dsh"
+        # The socat forwarder listens on container 3081 (dsh web holds
+        # 127.0.0.1:3080; a wildcard + loopback pair cannot share one port on
+        # Linux). The deploy auto-allocates the host port; ${HOST_PORT:3081}
+        # resolves it in checks.
+        port:
+            - 3081
+        volume:
+            - name: dsh
+              path: "~/.dsh"
+        service:
+            - name: dsh
+              exec: "%(ENV_HOME)s/.local/bin/dsh-entrypoint"
+              restart: always
+              working_directory: "%(ENV_HOME)s"
+              enable: true
+              scope: system
+        plan:
+            - run: mkdir=${HOME}/.local/bin
+              mkdir: "${HOME}/.local/bin"
+              run_as: "${USER}"
+            - run: copy=dsh-entrypoint
+              copy: dsh-entrypoint
+              to: "${HOME}/.local/bin/dsh-entrypoint"
+              mode: "0755"
+              run_as: "${USER}"
+            - check: the dsh service is running under the init system
+              context:
+                - runtime
+              service:
+                service: dsh
+                running: true
+            - check: the token-authenticated dsh web UI answers on 127.0.0.1:3080 in-box
+              timeout: 30s
+              context:
+                - runtime
+              command: |
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                T="$(cat "$DSH_HOME/web-token" 2>/dev/null || cat "$H/.dsh/web-token")"
+                curl -fsS -o /dev/null "http://127.0.0.1:3080/?token=$T"
+            - check: the socat forwarder relays the token-authenticated dsh web UI on 127.0.0.1:3081 in-box
+              timeout: 30s
+              context:
+                - runtime
+              command: |
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                T="$(cat "$DSH_HOME/web-token" 2>/dev/null || cat "$H/.dsh/web-token")"
+                curl -fsS -o /dev/null "http://127.0.0.1:3081/?token=$T"
+            - check: the published port reaches the dsh web UI and enforces its auth fence (401 without a token)
+              timeout: 30s
+              context:
+                - runtime
+              http:
+                http: http://127.0.0.1:${HOST_PORT:3081}/
+                status: 401

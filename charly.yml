@@ -21,139 +21,32 @@ import:
 discover:
     - path: candy
       recursive: true
-dsh:
-    candy:
-        description: |
-            Installs the deepseek-harness dsh CLI globally via npm and serves the
-            dsh web Web UI (port 3080) as a supervised service. The candy depends
-            on nodejs (>=22.19.0 — the dsh floor) and ships a package.json pinning
-            @deepseek-ai/dsh 0.1.7-rc.1, which the build installs globally under
-            NPM_CONFIG_PREFIX (~/.npm-global). The web app binds 127.0.0.1:3080
-            ONLY — dsh-web-app 0.1.7-rc.1 hard-rejects --host 0.0.0.0 (RCE
-            safety) — so a charly-owned entrypoint runs `dsh web` in the
-            background and exec's a socat forwarder that listens on the
-            container's eth0 (0.0.0.0:3081) and forwards to loopback. socat
-            cannot share port 3080 (Linux forbids a wildcard + loopback pair on
-            one port), so the published port (auto-allocated host port ->
-            container 3081) reaches the web UI on the pod substrate. Since
-            0.1.5-rc.x the web UI authenticates every request: each process mints
-            a random launch token and `dsh web` prints it in its
-            `dsh web: http://127.0.0.1:3080/?token=...` readiness line. The
-            entrypoint captures that token and persists it to
-            $DSH_HOME/web-token (on the dsh volume, so it survives the fresh
-            `charly update` rebuild), and the in-box checks authenticate with
-            `curl "http://127.0.0.1:3080/?token=$(cat $DSH_HOME/web-token)"`.
-            Every fact is observable: the dsh binary at ~/.npm-global/bin/dsh,
-            the unpacked package, `dsh --version`/`--help`, node >= 22.19.0, the
-            running service, the persisted token file, and the HTTP 200 the
-            token-authenticated web UI answers on 127.0.0.1:3080.
-        require:
-            - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
-            - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
-        package:
-            - socat
-        env:
-            DSH_HOME: "~/.dsh"
-        # The socat forwarder listens on container 3081 (dsh web holds
-        # 127.0.0.1:3080; a wildcard + loopback pair cannot share one port on
-        # Linux). The deploy auto-allocates the host port; ${HOST_PORT:3081}
-        # resolves it in checks.
-        port:
-            - 3081
-        volume:
-            - name: dsh
-              path: "~/.dsh"
-        service:
-            - name: dsh
-              exec: "%(ENV_HOME)s/.local/bin/dsh-entrypoint"
-              restart: always
-              working_directory: "%(ENV_HOME)s"
-              enable: true
-              scope: system
-        plan:
-            - run: mkdir=${HOME}/.local/bin
-              mkdir: "${HOME}/.local/bin"
-              run_as: "${USER}"
-            - run: copy=dsh-entrypoint
-              copy: dsh-entrypoint
-              to: "${HOME}/.local/bin/dsh-entrypoint"
-              mode: "0755"
-              run_as: "${USER}"
-            - check: the dsh binary is installed into the npm global bin directory
-              file:
-                file: ${HOME}/.npm-global/bin/dsh
-                exists: true
-            - check: the dsh package is unpacked under the npm global lib directory
-              file:
-                file: ${HOME}/.npm-global/lib/node_modules/@deepseek-ai/dsh/package.json
-                exists: true
-            - check: running dsh --version exits cleanly and prints a semantic version
-              exit_status: 0
-              stdout:
-                - matches: "[0-9]+\\.[0-9]+"
-              command: ${HOME}/.npm-global/bin/dsh --version
-            - check: running dsh --help exits cleanly and lists the web and plugin commands
-              exit_status: 0
-              stdout:
-                - contains: "web"
-                - contains: "plugin"
-              command: ${HOME}/.npm-global/bin/dsh --help
-            - # The dsh harness floor (node ^22.19.0 || >=24.0.0). No `${...}` anywhere:
-              # a check step's command goes through charly's variable substitution, which
-              # reads `${HOME:-default}` as a variable named `HOME:-default`, fails to
-              # resolve it, and SKIPS the step — trading a red check for a silently absent
-              # one. `node -e` with single quotes has no `${...}`, so it always runs.
-              check: node is at least 22.19.0 (the deepseek-harness dsh floor)
-              exit_status: 0
-              command: |
-                node -e 'const [maj,min]=process.versions.node.split(".").map(Number); if (maj<22||(maj===22&&min<19)) process.exit(1)'
-            - check: the dsh service is running under the init system
-              context:
-                - runtime
-              service:
-                service: dsh
-                running: true
-            - check: the token-authenticated dsh web UI answers on 127.0.0.1:3080 in-box
-              timeout: 30s
-              context:
-                - runtime
-              command: |
-                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
-                T="$(cat "$DSH_HOME/web-token" 2>/dev/null || cat "$H/.dsh/web-token")"
-                curl -fsS -o /dev/null "http://127.0.0.1:3080/?token=$T"
-            - check: the socat forwarder relays the token-authenticated dsh web UI on 127.0.0.1:3081 in-box
-              timeout: 30s
-              context:
-                - runtime
-              command: |
-                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
-                T="$(cat "$DSH_HOME/web-token" 2>/dev/null || cat "$H/.dsh/web-token")"
-                curl -fsS -o /dev/null "http://127.0.0.1:3081/?token=$T"
-            - check: the published port reaches the dsh web UI and enforces its auth fence (401 without a token)
-              timeout: 30s
-              context:
-                - runtime
-              http:
-                http: http://127.0.0.1:${HOST_PORT:3081}/
-                status: 401
-
 dsh-skill:
     skill:
         name: dsh
         family: tools
         owner: dsh
         description: |-
-            DeepSeek Harness (dsh) CLI + web UI via npm with a socat-exposed web service on port 3080.
-            Use when working with the dsh candy.
+            DeepSeek Harness (dsh) CLI + loopback web UI via npm with a socat-exposed web service on port 3080.
+            Use when working with the dsh CLI or the dsh-web candy.
         content: |-
             # dsh -- DeepSeek Harness CLI and web UI
 
-            ## Candy Properties
+            The DeepSeek Harness capability is split across three candies by
+            concern (R3):
+
+            - `dsh` — the CLI only (`@deepseek-ai/dsh` 0.2.0-rc.2 via npm).
+            - `dsh-web` — the loopback-only, token-authenticated web UI + socat
+              forwarder (composes `dsh`).
+            - `dsh-tui` — the dsh-TUI terminal-UI plugin + its typed terminal
+              channel (composes `dsh`).
+
+            ## Candy Properties (dsh-web)
 
             | Property | Value |
             |----------|-------|
-            | Install files | `charly.yml`, `package.json`, `dsh-entrypoint` |
-            | Depends | `nodejs` (>=22.19.0), `supervisord` |
+            | Install files | `charly.yml`, `dsh-entrypoint` |
+            | Depends | `dsh`, `nodejs` (>=22.19.0), `supervisord` |
             | Port | 3080 (web UI, loopback) / 3081 (socat forwarder) |
             | Volume | `~/.dsh` (profiles + plugin data + the captured web token) |
 
@@ -169,8 +62,8 @@ dsh-skill:
 
             ## The web UI is loopback-only and token-authenticated
 
-            `dsh web` binds **127.0.0.1:3080 only**: dsh-web-app 0.1.7-rc.1
-            hard-rejects `--host 0.0.0.0` (RCE safety). A container's published
+            `dsh web` binds **127.0.0.1:3080 only**: dsh-web-app hard-rejects
+            `--host 0.0.0.0` (RCE safety). A container's published
             port maps to the container's eth0, not loopback — so the charly-owned
             `dsh-entrypoint` runs `dsh web` in the background and `exec`s a socat
             forwarder (`TCP-LISTEN:3081,fork,reuseaddr TCP:127.0.0.1:3080`) that
@@ -180,7 +73,7 @@ dsh-skill:
             the web UI through socat. On the vm substrate the `ssh -L` forward
             targets loopback directly — socat just doesn't hurt there.
 
-            Since dsh-web-app 0.1.5-rc.x the web UI authenticates every request:
+            The web UI authenticates every request:
             each process mints a random launch token, and `dsh web` prints its
             readiness URL as `dsh web: http://127.0.0.1:3080/?token=...`. There is
             no flag or config that disables authentication. The entrypoint parses
@@ -194,9 +87,12 @@ dsh-skill:
 
             ```yaml
             # charly.yml
-            my-image:
+            my-web-box:
               candy:
-                - dsh
+                - dsh-web   # CLI + web UI
+            my-tui-box:
+              candy:
+                - dsh-tui   # CLI + terminal UI
             ```
 
             ## Used In Boxes
@@ -207,14 +103,15 @@ dsh-skill:
             ## Related Candies
 
             - `/charly-coder:nodejs` -- required runtime dependency (node >=22.19.0)
+            - `/charly-tools:dsh-tui` -- the terminal UI candy (the dsh-TUI plugin)
             - `/charly-tools:mcporter` -- sibling npm-global CLI candy
 
             ## When to Use This Skill
 
             Use when the user asks about:
 
-            - The deepseek-harness `dsh` CLI or web UI
-            - The `dsh` candy or the `dsh:` check verb
+            - The deepseek-harness `dsh` CLI
+            - The `dsh-web` candy or the `dsh:` check verb
             - The socat forwarder that exposes the loopback-bound web app
 
             ## Related
@@ -223,33 +120,30 @@ dsh-skill:
             - `/charly-check:check` — declarative testing (`check:` block, `charly check box`, `charly check live`)
 
 # =============================================================================
-# dsh-app + check-dsh-pod — the R10 bed for the deepseek-harness dsh candy and
-# the compiled-in plugin-dsh management plugin (command:dsh + verb:dsh). Moved
-# here from opencharly/charly's charly.yml, which cannot exercise this candy as
-# in-development code (the bed's dev-tree override resolves the bed project's own
-# superproject, not the candy owner), so the artifact owner tests its own candy
-# locally.
+# dsh-app + check-dsh-pod — the R10 bed for the deepseek-harness dsh-web candy
+# and the compiled-in plugin-dsh management plugin (command:dsh + verb:dsh).
+# Moved here from opencharly/charly's charly.yml, which cannot exercise this
+# candy as in-development code (the bed's dev-tree override resolves the bed
+# project's own superproject, not the candy owner), so the artifact owner tests
+# its own candy locally.
 #
-# The bed builds a minimal Fedora box composing nodejs + the LOCAL dsh candy.
-# The npm builder (the local fedora-builder above) installs @deepseek-ai/dsh
-# 0.1.7-rc.1 globally; node-pty (a dsh dependency) ships NO linux-x64 prebuild
-# in the npm tarball, so its install script falls through to node-gyp — the
-# builder's build-toolchain provides gcc/make/python3, and the compiled pty.node
-# is N-API (ABI-stable across node versions, so building against the builder's
-# node runs on the image's node). The dsh service boots `dsh web` (loopback-only,
-# 127.0.0.1:3080) and the charly-owned dsh-entrypoint exec's a socat forwarder
-# exposing it on eth0:3081.
+# The bed builds a minimal Fedora box composing nodejs + the LOCAL dsh-web candy
+# (which composes the `dsh` CLI candy). The npm builder (the local fedora-builder
+# above) installs @deepseek-ai/dsh 0.2.0-rc.2 globally; node-pty ships a
+# linux-x64 prebuild in the npm tarball, so no node-gyp fallback is needed (the
+# builder's build-toolchain still provides gcc/make/python3 if it is). The dsh
+# service boots `dsh web` (loopback-only, 127.0.0.1:3080) and the charly-owned
+# dsh-entrypoint exec's a socat forwarder exposing it on eth0:3081.
 # =============================================================================
 dsh-app:
     candy:
         base: quay.io/fedora/fedora:43
         description: |-
             The deepseek-harness box: a minimal Fedora base composing the nodejs and
-            local dsh candies. The npm builder installs @deepseek-ai/dsh 0.1.7-rc.1
-            globally (node-pty's native module builds via node-gyp in the
-            fedora-builder's build-toolchain); the dsh service boots the
-            loopback-bound, token-authenticated web UI and a socat forwarder exposes
-            it on the container's eth0. The candy's checks run in BOTH contexts, so
+            local dsh-web candies. The npm builder installs @deepseek-ai/dsh
+            0.2.0-rc.2 globally; the dsh service boots the loopback-bound,
+            token-authenticated web UI and a socat forwarder exposes it on the
+            container's eth0. The candy's checks run in BOTH contexts, so
             `charly check box dsh-app` proves the CLI installs and the node floor
             holds without deploying, and `charly check live` re-proves the same
             shape against the running pod plus the service + web UI.
@@ -266,14 +160,15 @@ dsh-app:
             npm: fedora-builder
         candy:
             - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
-            - dsh
+            # dsh-web composes the `dsh` CLI candy; the web service is this box's subject.
+            - dsh-web
 check-dsh-pod:
     pod:
         image: dsh-app
         disposable: true
         lifecycle: dev
         description: >-
-            R10 bed for the deepseek-harness dsh candy + the compiled-in plugin-dsh management plugin. Deploying it to steady state proves the dsh-app box — whose image build ran the npm builder (installing @deepseek-ai/dsh 0.1.7-rc.1 globally, node-pty's native module built via node-gyp) and asserted the CLI + node floor — builds, starts, and stays up with the dsh service running, the entrypoint capturing the web launch token to $DSH_HOME/web-token, the token-authenticated web UI answering in-box on 127.0.0.1:3080 AND through the socat forwarder on 127.0.0.1:3081, the published port enforcing its auth fence, the four dsh: verb methods dispatching in-box, and the compiled-in `charly dsh status` command reaching the deployed box over the pod-lifecycle reverse channel.
+            R10 bed for the deepseek-harness dsh-web candy + the compiled-in plugin-dsh management plugin. Deploying it to steady state proves the dsh-app box — whose image build ran the npm builder (installing @deepseek-ai/dsh 0.2.0-rc.2 globally) and asserted the CLI + node floor — builds, starts, and stays up with the dsh service running, the entrypoint capturing the web launch token to $DSH_HOME/web-token, the token-authenticated web UI answering in-box on 127.0.0.1:3080 AND through the socat forwarder on 127.0.0.1:3081, the published port enforcing its auth fence, the four dsh: verb methods dispatching in-box, and the compiled-in `charly dsh status` command reaching the deployed box over the pod-lifecycle reverse channel.
         plan:
             - check: the dsh-app pod reached steady state (the dsh box runs)
               id: dsh-pod-running
@@ -365,3 +260,291 @@ check-dsh-pod:
               command:
                 command: ${CHARLY_BIN} dsh status --box check-dsh-pod
                 in_container: false
+
+# =============================================================================
+# dsh-tui-app + check-dsh-tui-pod — the R10 bed for the dsh-TUI terminal UI.
+#
+# dsh-tui (https://github.com/ccch1mneyyy/dsh-TUI) is a pure DSH plugin. The box
+# composes the nodejs layer + the LOCAL dsh-tui candy (which composes the `dsh`
+# CLI candy). The npm builder installs @deepseek-ai/dsh 0.2.0-rc.2 AND
+# @deepseek-harness-tui/dsh-tui 0.13.0 globally; the candy adds the plugin to the
+# `dsh-tui` profile (`dsh plugin --profile dsh-tui add …`) and publishes a
+# terminal_profile + agent_provide tmux channel.
+#
+# A terminal channel is NOT a long-running service: the typed-terminal route
+# launches `dsh-tui` ON DEMAND inside the venue, so the pod has no service of
+# its own and must be held at steady-state by check-keepalive's `sleep infinity`
+# supervisord program.
+# =============================================================================
+dsh-tui-app:
+    candy:
+        base: quay.io/fedora/fedora:43
+        description: |-
+            The dsh-TUI box: a minimal Fedora base composing the nodejs layer, the
+            check-keepalive holder, and the local dsh-tui candy (which composes the
+            `dsh` CLI candy). The npm builder installs @deepseek-ai/dsh 0.2.0-rc.2
+            and @deepseek-harness-tui/dsh-tui 0.13.0 globally; the candy adds the
+            plugin to the `dsh-tui` profile and publishes a typed terminal channel.
+            The baked checks run in BOTH contexts: `charly check box dsh-tui-app`
+            proves the CLI + plugin install and the node floor without deploying,
+            and `charly check live` / `charly check run` re-prove the same shape
+            against the running pod plus the terminal channel.
+        distro:
+            - fedora:43
+            - fedora
+        # The npm builder resolves to this project's LOCAL fedora-builder (above);
+        # a namespace-qualified base would contribute no builder map at all.
+        builder:
+            npm: fedora-builder
+        candy:
+            - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
+            - '@github.com/opencharly/pod-check-keepalive:v2026.274.0621'
+            - dsh-tui
+check-dsh-tui-pod:
+    pod:
+        image: dsh-tui-app
+        disposable: true
+        lifecycle: dev
+        description: >-
+            R10 bed for the dsh-TUI terminal UI (the dsh-TUI DSH plugin) and the generic typed terminal:tmux channel. Deploying it to steady state proves the dsh-tui-app box — whose image build ran the npm builder (installing @deepseek-ai/dsh 0.2.0-rc.2 and @deepseek-harness-tui/dsh-tui 0.13.0 globally) and added the plugin to the dsh-tui profile — builds, starts, and holds at steady state. The bed asserts the composed image advertises the tmux agent channel and the dsh-tui terminal profile, drives ONE terminal:tmux session (the composer renders — the plugin is mounted; a typed marker echoes — the channel carries input; durable transcript evidence), and then proves the LIVE provider contract with a one-shot in-box `dsh headless` turn on the ollama-cloud route (answer 6158, absent from the prompt). Node floor and the profile manifest are asserted in-box.
+
+            The live provider turn is gated on the real credential (R7a) — it skips VISIBLY when the bed host has no OLLAMA_API_KEY. Driving the interactive composer's submit is keyboard-timing sensitive (a stray Enter can leave the draft in the composer), so the live turn is asserted deterministically via the harness in the same box rather than through the TUI's keystroke path.
+        plan:
+            - check: the dsh-tui-app pod reached steady state (the keepalive box runs)
+              id: dsh-tui-pod-running
+              exit_status: 0
+              stdout:
+                - contains: '"kind": "pod"'
+                - contains: check-dsh-tui-pod
+              context:
+                - runtime
+              command:
+                command: ${CHARLY_BIN} status --json
+                in_container: false
+            - check: node is at least 22.19.0 (the deepseek-harness dsh floor)
+              id: dsh-tui-node-floor
+              exit_status: 0
+              context: [runtime]
+              command: |
+                node -e 'const [maj,min]=process.versions.node.split(".").map(Number); if (maj<22||(maj===22&&min<19)) process.exit(1)'
+            - check: the dsh-tui plugin is installed in the dsh-tui profile
+              id: dsh-tui-profile-present
+              exit_status: 0
+              context: [runtime]
+              command: |
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                test -f "$H/.dsh/profiles/dsh-tui/package.json"
+                grep -q '@deepseek-harness-tui/dsh-tui' "$H/.dsh/profiles/dsh-tui/package.json"
+            - check: the dsh-tui launcher reports the launcher and profile versions (no TTY needed)
+              id: dsh-tui-version
+              exit_status: 0
+              stdout:
+                - contains: "0.13.0"
+              context: [runtime]
+              command: |
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                "$H/.npm-global/bin/dsh-tui" version
+            # The terminal channel: the host drives the TUI inside the pod through
+            # the gRPC stdio endpoint. Step A is deterministic (no model call): it
+            # launches the detached profile, snapshots the virtual screen, types
+            # literal text and reads it back in the composer, and reads durable
+            # transcript evidence — proving the channel carries typed input and the
+            # TUI reaches its first frame with the plugin mounted.
+            - check: the dsh-tui-app image advertises the tmux agent channel and the dsh-tui terminal profile
+              id: dsh-tui-channel-labels
+              timeout: 60s
+              exit_status: 0
+              context:
+                - runtime
+              command:
+                in_container: false
+                command: |
+                    set -eu
+                    ${CHARLY_BIN} box labels dsh-tui-app --format agent_provide | grep -q '"provider":"tmux"'
+                    ${CHARLY_BIN} box labels dsh-tui-app --format terminal_profiles | grep -q '"dsh-tui"'
+            # ONE dsh-TUI session over the tmux terminal channel proves the
+            # PLUGIN + CHANNEL: the composer renders (the plugin is mounted in
+            # the profile and reachable through the typed terminal route), the
+            # channel carries typed input (the marker echoes in the composer),
+            # and the durable transcript retains that marker. It does NOT make a
+            # model call — the marker is typed WITHOUT submitting.
+            #
+            # The LIVE provider turn is a separate step (dsh-tui-live-turn): a
+            # one-shot in-box `dsh headless` on the same ollama-cloud route,
+            # because driving the interactive composer's submit is
+            # keyboard-timing racy.
+            - check: the dsh-TUI terminal channel renders and carries typed input over the tmux channel
+              id: dsh-tui-session
+              timeout: 300s
+              exit_status: 0
+              stdout:
+                - contains: DSH-TUI-CHANNEL-OK
+              context:
+                - runtime
+              command:
+                in_container: false
+                command: |
+                    set -eu
+                    DIR=$(mktemp -d)
+                    LOG="$DIR/commands.log"
+                    export CHARLY_AGENT_STATE_DIR="$DIR/state"
+                    PROFILE='{"name":"dsh-tui","entrypoint":["dsh-tui"],"cols":140,"rows":44,"keys":["enter","escape","tab"],"persistence":"detach","transcript":"both"}'
+                    TARGET=check-dsh-tui-pod
+                    # ONE terminal session. A hardcoded --run-id would collide
+                    # across the check-live and check-live-rebuild passes and across
+                    # retries, so the launch generates a unique id (read back) — the
+                    # check-agent-pod precedent.
+                    LAUNCHED="$(${CHARLY_BIN} agent terminal launch "$PROFILE" --target "$TARGET" 2>>"$LOG")"
+                    printf '%s' "$LAUNCHED" | grep -q '"state":"detached"'
+                    RUN="$(printf '%s' "$LAUNCHED" | sed -n 's/.*"run_id":"\([^"]*\)".*/\1/p')"
+                    test -n "$RUN"
+                    # 1) the plugin mounted: the composer renders. This is the
+                    #    channel proof — the dsh-tui plugin is installed in the
+                    #    profile and the typed terminal route reaches it.
+                    RENDERED=0
+                    for i in $(seq 1 30); do
+                      sleep 1
+                      SNAP="$(${CHARLY_BIN} agent terminal snapshot "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true)"
+                      if printf '%s' "$SNAP" | grep -qE 'Say something|deepseek-v4'; then RENDERED=1; break; fi
+                    done
+                    if [ "$RENDERED" != 1 ]; then
+                      echo 'dsh-tui-session: the TUI never rendered the chat composer' >&2
+                      printf '%s\n' "$SNAP" >&2 || true
+                      cat "$LOG" >&2 || true
+                      exit 1
+                    fi
+                    # 2) the channel carries typed input: a marker echoes in the
+                    #    composer (typed WITHOUT submitting — no model call).
+                    MARKER="charly-channel-$(( (RANDOM % 90000) + 10000 ))"
+                    ${CHARLY_BIN} agent terminal input "$PROFILE" "$MARKER" --target "$TARGET" --run-id "$RUN" 2>>"$LOG"
+                    ECHOED=0
+                    for i in $(seq 1 25); do
+                      sleep 1
+                      SNAP="$(${CHARLY_BIN} agent terminal snapshot "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true)"
+                      if printf '%s' "$SNAP" | grep -q "$MARKER"; then ECHOED=1; break; fi
+                    done
+                    if [ "$ECHOED" != 1 ]; then
+                      echo 'dsh-tui-session: typed input never reached the TUI composer' >&2
+                      printf '%s\n' "$SNAP" >&2 || true
+                      cat "$LOG" >&2 || true
+                      exit 1
+                    fi
+                    # Durable transcript evidence for the typed marker.
+                    ${CHARLY_BIN} agent terminal transcript "$RUN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const text=JSON.parse(s).map(f=>(f.data?Buffer.from(f.data,"base64").toString():"")+(f.snapshot||"")).join("\n");if(!text.includes(process.argv[1]))process.exit(1)})' "$MARKER"
+                    ${CHARLY_BIN} agent terminal close "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true
+                    echo DSH-TUI-CHANNEL-OK
+            # The live model turn, proven with a ONE-SHOT in-box `dsh headless`
+            # call rather than by driving the interactive composer. The TUI's
+            # submit path is keyboard-timing sensitive (a stray Enter can leave the
+            # draft in the composer), so the live provider contract is asserted
+            # deterministically here: the harness in the SAME box, using the SAME
+            # ollama-cloud route and credential store, answers a real turn. The
+            # answer 6158 is absent from the prompt, so a match can only come from
+            # the model.
+            #
+            # R7a: the real provider is called, or the step SKIPS VISIBLY when no
+            # OLLAMA_API_KEY is on the bed host. The key is delivered into the pod
+            # via `charly cp` (the sanctioned path — a bed's own run: step is
+            # verify-only and skipped).
+            - check: the harness in the box answers a live ollama-cloud turn (one-shot dsh headless), or skips when no key is present
+              id: dsh-tui-live-turn
+              timeout: 300s
+              exit_status: 0
+              stdout:
+                - contains: "6158"
+              context:
+                - runtime
+              command:
+                in_container: false
+                command: |
+                    set -eu
+                    # Resolve the credential on the HOST. Do NOT write a shell
+                    # default-expansion for the variable name here: a check step's
+                    # command is variable-substituted (comments included), and an
+                    # OLLAMA_API_KEY shell-default token would be read as an
+                    # unresolved variable and SKIP the whole step.
+                    KEY="$(printenv OLLAMA_API_KEY || true)"
+                    if [ -z "$KEY" ] && [ -f "$HOME/.dsh/.env" ]; then
+                      KEY="$(sed -n 's/^OLLAMA_API_KEY=//p' "$HOME/.dsh/.env" | tail -1)"
+                    fi
+                    if [ -z "$KEY" ]; then
+                      echo "DSH-TUI-LIVE-SKIP: OLLAMA_API_KEY not present on the bed host; the live provider turn is skipped (the install + channel checks above still stand)" >&2
+                      echo DSH-TUI-LIVE-SKIP
+                      exit 0
+                    fi
+                    DIR=$(mktemp -d)
+                    printf 'OLLAMA_API_KEY=%s\n' "$KEY" > "$DIR/.env"
+                    chmod 600 "$DIR/.env"
+                    TARGET=check-dsh-tui-pod
+                    ${CHARLY_BIN} cp "$TARGET" "$DIR/.env" :/home/user/.dsh/.env
+                    ${CHARLY_BIN} cmd "$TARGET" 'H=/home/user; export PATH="$H/.npm-global/bin:$PATH"; export DSH_HOME="$H/.dsh"; dsh headless "Compute 6153 plus 5. Answer with only the numeral."'
+
+dsh-tui-skill:
+    skill:
+        name: dsh-tui
+        family: tools
+        owner: dsh
+        description: |-
+            The dsh-TUI terminal UI plugin for DeepSeek Harness (dsh) — a pure DSH plugin
+            installed into the dsh-tui profile, launched by the `dsh-tui` / `dst` launcher,
+            and exposed as a typed terminal:tmux channel.
+            Use when working with the dsh-TUI terminal UI.
+        content: |-
+            # dsh-tui -- the DeepSeek Harness terminal UI plugin
+
+            `dsh-TUI` (https://github.com/ccch1mneyyy/dsh-TUI, npm
+            `@deepseek-harness-tui/dsh-tui`) is a **pure DSH plugin**, not a
+            daemon. It is added to a dsh *profile* and launched by the shipped
+            `dsh-tui` / `dst` launcher (or `dsh --profile dsh-tui`). The candy
+            `dsh-tui` composes the `dsh` CLI candy and adds the plugin + a typed
+            terminal channel.
+
+            ## Candy Properties
+
+            | Property | Value |
+            |----------|-------|
+            | Install files | `charly.yml`, `package.json` |
+            | Depends | `dsh` (the CLI candy), `layer-tmux` |
+            | Env | `DSH_TUI_NO_LAUNCHPAD=1` (boot straight to the composer) |
+            | Channel | `terminal_profile: dsh-tui` + `agent_provide: tmux` |
+            | Profile | `$DSH_HOME/profiles/dsh-tui` (auto-bootstrapped on first launch) |
+
+            ## Deterministic first launch
+
+            The first-run wizard is pre-recorded at `~/.dsh-tui/onboarding.json`
+            (`{"completed":true,"version":1}`) and the launchpad is disabled
+            (`DSH_TUI_NO_LAUNCHPAD=1`), so the process lands directly on the chat
+            screen with no keyboard-owning dialog — the state a terminal channel
+            can drive. Without both, an ordinary launch opens the wizard or the
+            launchpad, which own the keyboard.
+
+            ## The terminal channel
+
+            The candy publishes a `terminal_profile` (entrypoint `dsh-tui`) and an
+            `agent_provide: {provider: tmux, profiles: [dsh-tui]}` capability. A
+            disposable bed or a host controller drives it through
+            `charly agent terminal launch/snapshot/input/key/transcript`. A
+            terminal channel is **on-demand**, not a long-running service: a
+            service-less box that carries it must be held at steady state by
+            `check-keepalive`'s `sleep infinity` supervisord program.
+
+            ## Usage
+
+            ```yaml
+            # charly.yml
+            my-tui-box:
+              candy:
+                - dsh-tui
+            ```
+
+            ```bash
+            charly start my-tui-box
+            # drive the TUI through the channel:
+            charly agent terminal launch '{"name":"dsh-tui","entrypoint":["dsh-tui"],"cols":140,"rows":44,"keys":["enter"]}' --target my-tui-box --run-id <uuid>
+            ```
+
+            ## Related
+
+            - `/charly-tools:dsh` -- the CLI + web-UI candy family (`dsh`, `dsh-web`)
+            - `/charly-check:check` — the R10 bed `check-dsh-tui-pod`
+            - `/charly-image:layer` — candy authoring reference
