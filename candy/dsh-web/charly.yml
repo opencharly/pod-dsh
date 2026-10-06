@@ -15,13 +15,19 @@ dsh-web:
             (0.0.0.0:3081) and forwards to loopback. socat cannot share port
             3080 (Linux forbids a wildcard + loopback pair on one port), so the
             published port (auto-allocated host port -> container 3081) reaches
-            the web UI on the pod substrate. The web UI authenticates every
-            request: each process mints a random launch token and `dsh web`
-            prints it in its `dsh web: http://127.0.0.1:3080/?token=...`
-            readiness line. The entrypoint captures that token and persists it
-            to $DSH_HOME/web-token (on the dsh volume, so it survives the fresh
-            `charly update` rebuild), and the in-box checks authenticate with
-            `curl "http://127.0.0.1:3080/?token=$(cat $DSH_HOME/web-token)"`.
+            the web UI on the pod substrate. The web UI authenticates at TWO
+            layers: (1) a per-process random launch token that `dsh web` prints
+            in its `dsh web: http://127.0.0.1:3080/?token=...` readiness line
+            (captured by the entrypoint to $DSH_HOME/web-token, on the dsh
+            volume, so it survives the fresh `charly update` rebuild), and
+            (2) a Host/Origin browser-trust fence gating every request including
+            `/api/*`. The default deployment is reached on loopback
+            (`127.0.0.1:3080` in-box, `127.0.0.1:<host-port>` through socat), which
+            the fence trusts. To expose the pod behind a reverse proxy
+            (`tailscale serve`, an SSH `-L` tunnel), set `DSH_WEB_TRUSTED_HOSTS`
+            to the proxy authority (`host:port`) so the entrypoint adds
+            `--trusted-host`; without it every `/api/*` call returns 403 and the
+            SPA renders a dead page even though `/` returns 200.
             Every fact is observable: the running service, the persisted token
             file, and the HTTP 200 the token-authenticated web UI answers on
             127.0.0.1:3080.
@@ -32,6 +38,7 @@ dsh-web:
             - socat
         env:
             DSH_HOME: "~/.dsh"
+            DSH_WEB_TRUSTED_HOSTS: ""
         # The socat forwarder listens on container 3081 (dsh web holds
         # 127.0.0.1:3080; a wildcard + loopback pair cannot share one port on
         # Linux). The deploy auto-allocates the host port; ${HOST_PORT:3081}

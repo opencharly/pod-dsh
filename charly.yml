@@ -28,6 +28,8 @@ dsh-skill:
         owner: dsh
         description: |-
             DeepSeek Harness (dsh) CLI + loopback web UI via npm with a socat-exposed web service on port 3080.
+            Covers the web UI's two-layer auth (launch token + Host/Origin browser-trust fence), the
+            `--trusted-host` requirement for reverse-proxy / Tailscale exposure, and the 1:1 port-mapping rule.
             Use when working with the dsh CLI or the dsh-web candy.
         content: |-
             # dsh -- DeepSeek Harness CLI and web UI
@@ -55,6 +57,7 @@ dsh-skill:
             | Variable | Value |
             |----------|-------|
             | `DSH_HOME` | `~/.dsh` |
+            | `DSH_WEB_TRUSTED_HOSTS` | unset/empty by default; a space- or comma-separated list of `host:port` authorities the entrypoint forwards as repeatable `--trusted-host` (set it when the pod is reached through a reverse proxy) |
 
             ## Packages
 
@@ -73,15 +76,69 @@ dsh-skill:
             the web UI through socat. On the vm substrate the `ssh -L` forward
             targets loopback directly — socat just doesn't hurt there.
 
-            The web UI authenticates every request:
-            each process mints a random launch token, and `dsh web` prints its
-            readiness URL as `dsh web: http://127.0.0.1:3080/?token=...`. There is
-            no flag or config that disables authentication. The entrypoint parses
-            that token from the readiness line and writes it to
-            `$DSH_HOME/web-token` (on the `dsh` volume, so a fresh `charly update`
-            rebuild re-captures it); a tokenless `GET /` returns **401**. In-box
-            probes authenticate with the token, e.g.
+            ## The web UI has TWO independent auth layers
+
+            `dsh web` authenticates at **two** layers, and a probe that only
+            checks the first will pass while the browser UI is broken:
+
+            1. **The launch token.** Each process mints a random token and prints
+               its readiness URL as `dsh web: http://127.0.0.1:3080/?token=...`.
+               There is no flag or config that disables it. `GET /?token=…` on the
+               **root only** answers `303` and sets a signed, authority-bound,
+               `HttpOnly; SameSite=Strict` cookie whose authority is the *request
+               Host* — so it follows the proxy authority rather than staying
+               `127.0.0.1`. A missing or wrong-authority cookie returns **401**.
+
+            2. **The Host / Origin browser-trust fence** (`dsh-client-connection`'s
+               `api-request-trust`), which every API and WebSocket request passes
+               before authentication — including every `/api/*` call the SPA
+               makes after the shell loads. The request `Host` must be loopback
+               **or** match a `trustedHosts` entry (exact on `host:port`, any port
+               on a port-less entry); an attached `Origin` must equal that `Host`;
+               `sec-fetch-site: cross-site` is refused. A failed Host check
+               returns **403 `forbidden`**; a trusted-but-unauthenticated request
+               returns **401 `unauthorized`**. The root `GET /` is the token
+               redemption route and is answered by layer 1 first, so a forged Host
+               there reads **401, not 403** — the fence is only observable on
+               `/api/*`.
+
+            The entrypoint parses the token from the readiness line and writes it
+            to `$DSH_HOME/web-token` (on the `dsh` volume, so a fresh
+            `charly update` rebuild re-captures it). In-box probes authenticate
+            with the token, e.g.
             `curl "http://127.0.0.1:3080/?token=$(cat $DSH_HOME/web-token)"`.
+
+            ## Reaching the web UI through a reverse proxy (e.g. Tailscale)
+
+            Because the app binds loopback only, every off-loopback route is a
+            reverse proxy in front of it (`tailscale serve`, an SSH `-L` tunnel,
+            an ingress). Such a proxy forwards `Host: <proxy-authority>` — which
+            is **neither loopback nor in `trustedHosts`** by default — so the
+            shell loads (`/` → 200) but every `/api/*` call returns **403
+            forbidden** and the SPA renders an "authentication required" / dead
+            page. **`GET /` returning 200 does NOT prove the web UI works; always
+            exercise an `/api/*` request.**
+
+            The fix is the repeatable `--trusted-host <authority>` flag
+            (`dsh web --trusted-host <proxy-host>:<port>`). Note `lanAddresses`
+            is only populated when the bind host is `0.0.0.0`, which `dsh web`
+            deliberately is not — so when bound to loopback, only the explicit
+            `--trusted-host` entries are trusted. Pass the proxy authority, e.g.:
+
+            ```bash
+            # expose the loopback web UI on the tailnet, 1:1, and trust its authority
+            dsh --profile web --port 3080 --trusted-host "$(tailscale status --self --json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))'):3080"
+            tailscale serve --bg --https=3080 http://127.0.0.1:3080   # 1:1; NOT 443
+            ```
+
+            On a **pod**, the socat forwarder is what makes the published port
+            loopback-reaching, so a browser hitting `127.0.0.1:<published>` stays
+            on the trusted loopback authority. A pod reached through any
+            off-loopback proxy needs the same `--trusted-host` treatment: set the
+            `dsh-web` candy's `DSH_WEB_TRUSTED_HOSTS` to the proxy authority
+            (`host:port`, space- or comma-separated) and the entrypoint forwards
+            each as `--trusted-host`.
 
             ## Usage
 
@@ -217,6 +274,13 @@ check-dsh-pod:
               http:
                 http: "http://127.0.0.1:${HOST_PORT:3081}/"
                 status: 401
+            - check: the web UI's Host-trust fence rejects an untrusted (non-loopback) Host with 403 on /api/*
+              id: dsh-web-host-fence
+              timeout: 30s
+              context: [runtime]
+              command: |
+                test "$(curl -s -o /dev/null -w '%{http_code}' \
+                  -H 'Host: not-trusted.invalid' http://127.0.0.1:3080/api/models)" = 403
             - check: node is at least 22.19.0 (the deepseek-harness dsh floor)
               id: dsh-node-floor
               exit_status: 0
@@ -488,6 +552,9 @@ dsh-tui-skill:
             The dsh-TUI terminal UI plugin for DeepSeek Harness (dsh) — a pure DSH plugin
             installed into the dsh-tui profile, launched by the `dsh-tui` / `dst` launcher,
             and exposed as a typed terminal:tmux channel.
+            Covers the deterministic first-launch pre-record plus the terminal-channel
+            driving contract (unique run-ids, transcript-not-snapshot capture, the
+            interactive-submit race) used by the check-dsh-tui-pod R10 bed.
             Use when working with the dsh-TUI terminal UI.
         content: |-
             # dsh-tui -- the DeepSeek Harness terminal UI plugin
@@ -527,6 +594,33 @@ dsh-tui-skill:
             terminal channel is **on-demand**, not a long-running service: a
             service-less box that carries it must be held at steady state by
             `check-keepalive`'s `sleep infinity` supervisord program.
+
+            ## Driving the channel deterministically
+
+            The channel is a real terminal, so it must be driven the way a
+            terminal behaves — not the way a service does:
+
+            - **Unique run-ids.** `launch`/`input`/`snapshot`/`close` are keyed by
+              `--run-id`. A hardcoded run-id collides when `check-live` and
+              `check-live-rebuild` run the same plan in one session; derive a
+              fresh id per step (a `uuidgen`/`date +%s%N`-style value), never a
+              literal.
+            - **`snapshot` is a render of the viewport, so it is scroll/cursor
+              dependent** — a text that scrolled off is gone. To assert content,
+              read the durable **`transcript`** (the full session log), not a
+              snapshot taken at an arbitrary moment.
+            - **`close` closes the control channel, not the process.** The TUI
+              keeps running under tmux after a `close`; do not rely on `close` to
+              reap it, and never launch a second session against the same target
+              while a first is still attached — two concurrent control sessions on
+              one pod contend for the same tmux server.
+            - **The interactive submit is keyboard-timing racy.** Typing a prompt
+              and injecting the submit key can race the TUI's redraw, so a
+              pass/fail that depends on the enter landing is flaky by
+              construction. An interactive TUI's *liveness* is proven by the
+              channel (`launch` → non-empty `transcript` → `close`); the live
+              model turn it fronts is asserted separately with a one-shot,
+              non-interactive `dsh --headless` call in the same box.
 
             ## Usage
 
