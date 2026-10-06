@@ -285,6 +285,28 @@ check-dsh-pod:
               command: |
                 test "$(curl -s -o /dev/null -w '%{http_code}' \
                   -H 'Host: not-trusted.invalid' http://127.0.0.1:3080/api/models)" = 403
+            - check: the entrypoint forwards each DSH_WEB_TRUSTED_HOSTS entry as a repeatable --trusted-host — fails if the forwarding branch is removed
+              id: dsh-web-trusted-host-forwarded
+              timeout: 90s
+              context: [runtime]
+              command: |
+                set -e
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                D="$(mktemp -d)"
+                mkdir -p "$D/.npm-global/bin"
+                # A fake `dsh` records its argv, prints the readiness line the
+                # entrypoint parses, and would exec the socat forwarder we stub
+                # below — so the REAL entrypoint runs its exact code path.
+                printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$ARGV_FILE"\necho "dsh web: http://127.0.0.1:3080/?token=fake"\n' > "$D/.npm-global/bin/dsh"
+                chmod +x "$D/.npm-global/bin/dsh"
+                printf '#!/bin/sh\nexit 0\n' > "$D/socat"
+                chmod +x "$D/socat"
+                ARGV_FILE="$D/argv" HOME="$D" \
+                  DSH_WEB_TRUSTED_HOSTS="a.invalid:3080,b.invalid:3080" \
+                  PATH="$D:$PATH" bash "$H/.local/bin/dsh-entrypoint" </dev/null >/dev/null 2>&1 || true
+                grep -qx -- '--trusted-host' "$D/argv"
+                grep -qx 'a.invalid:3080' "$D/argv"
+                grep -qx 'b.invalid:3080' "$D/argv"
             - check: node is at least 22.19.0 (the deepseek-harness dsh floor)
               id: dsh-node-floor
               exit_status: 0
