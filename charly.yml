@@ -402,6 +402,10 @@ check-dsh-tui-pod:
                     fi
                     # Durable transcript evidence: the typed marker is retained.
                     ${CHARLY_BIN} agent terminal transcript "$RUN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const text=JSON.parse(s).map(f=>(f.data?Buffer.from(f.data,"base64").toString():"")+(f.snapshot||"")).join("\n");if(!text.includes(process.argv[1]))process.exit(1)})' "$MARKER"
+                    # Close this run so only ONE dsh-tui instance is ever alive in the
+                    # pod: concurrent instances contend and a later launch renders
+                    # blank (measured — the pod accumulated several across retries).
+                    ${CHARLY_BIN} agent terminal close "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true
                     echo DSH-TUI-CHANNEL-OK
             # The live model turn. R7a: the real provider is called, or the step
             # SKIPS VISIBLY when no OLLAMA_API_KEY is available to the bed host (the
@@ -470,6 +474,7 @@ check-dsh-tui-pod:
                       exit 1
                     fi
                     ${CHARLY_BIN} agent terminal transcript "$RUN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const text=JSON.parse(s).map(f=>(f.data?Buffer.from(f.data,"base64").toString():"")+(f.snapshot||"")).join("\n");if(!text.includes("6158"))process.exit(1)})'
+                    ${CHARLY_BIN} agent terminal close "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true
                     echo DSH-TUI-LIVE-OK
 
 dsh-tui-skill:
