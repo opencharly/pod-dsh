@@ -37,7 +37,19 @@ TOKEN_FILE="${DSH_HOME_DIR}/web-token"
 rm -f "${TOKEN_FILE}"
 
 WEB_LOG="$(mktemp)"
-dsh web --no-open >"${WEB_LOG}" 2>&1 &
+# dsh web's SECOND auth layer is the Host/Origin browser-trust fence: the request
+# `Host` must be loopback or match a `trustedHosts` entry, or EVERY request —
+# including every `/api/*` call — gets 403 forbidden. Behind a reverse proxy
+# (tailscale serve, an SSH -L tunnel, an ingress) the forwarded Host is the proxy
+# authority, not loopback, so a deployed pod exposed that way renders a dead page
+# unless the authority is trusted. DSH_WEB_TRUSTED_HOSTS (space/comma separated
+# `host:port` values) is forwarded as one repeatable --trusted-host per entry;
+# unset means loopback-only, which is correct for the default in-pod case.
+TRUSTED_ARGS=()
+for _h in ${DSH_WEB_TRUSTED_HOSTS//,/ }; do
+  [ -n "${_h}" ] && TRUSTED_ARGS+=(--trusted-host "${_h}")
+done
+dsh web --no-open "${TRUSTED_ARGS[@]}" >"${WEB_LOG}" 2>&1 &
 WEB_PID=$!
 
 # Wait for the authenticated URL line (or for dsh web to die). Bounded: if the
