@@ -8,8 +8,8 @@
 #
 # The API key is NOT in this file: it resolves per request through the dsh
 # credential store (the launch environment, the store, a project .env, or
-# ~/.dsh/.env). The candy declares env_require OLLAMA_API_KEY so a deploy warns
-# when it is absent.
+# ~/.dsh/.env). A provider turn requires the key to be present there; the candy
+# neither ships nor declares it.
 - id: llm-pi-ai
   config:
     providers:
