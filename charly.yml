@@ -460,15 +460,20 @@ check-dsh-tui-pod:
                     fi
                     ${CHARLY_BIN} agent terminal input "$PROFILE" 'Compute 6153 plus 5. Answer with only the numeral.' --target "$TARGET" --run-id "$RUN" 2>>"$LOG"
                     ${CHARLY_BIN} agent terminal key "$PROFILE" enter --target "$TARGET" --run-id "$RUN" 2>>"$LOG"
+                    # Poll the DURABLE TRANSCRIPT, not the virtual-screen snapshot:
+                    # once the answer arrives the TUI scrolls it out of the visible
+                    # viewport, so the reconstructed snapshot can miss it (measured:
+                    # the raw stream carried "● 6158" while all 64 snapshots showed
+                    # only the still-typed composer). The transcript is the ground
+                    # truth of what the process emitted.
                     ANSWERED=0
                     for i in $(seq 1 60); do
                       sleep 2
-                      SNAP="$(${CHARLY_BIN} agent terminal snapshot "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true)"
-                      if printf '%s' "$SNAP" | grep -q '6158'; then ANSWERED=1; break; fi
+                      TXT="$(${CHARLY_BIN} agent terminal transcript "$RUN" 2>>"$LOG" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const text=JSON.parse(s).map(f=>(f.data?Buffer.from(f.data,"base64").toString():"")+(f.snapshot||"")).join("\n");process.stdout.write(text.includes("6158")?"YES":"NO")})' 2>>"$LOG" || true)"
+                      if [ "$TXT" = "YES" ]; then ANSWERED=1; break; fi
                     done
                     if [ "$ANSWERED" != 1 ]; then
                       echo 'dsh-tui-live-turn: the TUI never answered the live model turn' >&2
-                      printf '%s\n' "$SNAP" >&2 || true
                       cat "$LOG" >&2 || true
                       exit 1
                     fi
