@@ -362,19 +362,17 @@ check-dsh-tui-pod:
                     set -eu
                     ${CHARLY_BIN} box labels dsh-tui-app --format agent_provide | grep -q '"provider":"tmux"'
                     ${CHARLY_BIN} box labels dsh-tui-app --format terminal_profiles | grep -q '"dsh-tui"'
-            # The live proof: ONE dsh-TUI session over the tmux terminal channel.
-            # A single session avoids two concurrent dsh-tui instances contending
-            # over the pod's shared DSH_HOME (measured: the second of two sessions
-            # in one pod renders blank frames), and proves the whole loop end to
-            # end — the plugin mounted (composer renders), the channel carries
-            # typed input (the marker echoes), and the harness answers a real
-            # ollama-cloud turn (the transcript carries the numeral).
+            # ONE dsh-TUI session over the tmux terminal channel proves the
+            # PLUGIN + CHANNEL: the composer renders (the plugin is mounted in
+            # the profile and reachable through the typed terminal route), the
+            # channel carries typed input (the marker echoes in the composer),
+            # and the durable transcript retains that marker. It does NOT make a
+            # model call — the marker is typed WITHOUT submitting.
             #
-            # R7a: the real provider is called, or the step SKIPS VISIBLY when no
-            # OLLAMA_API_KEY is on the bed host. The key is delivered into the pod
-            # via `charly cp` (the sanctioned path — a bed's own run: step is
-            # verify-only and skipped). The answer (6158) is absent from the typed
-            # prompt, so a match can only come from the model.
+            # The LIVE provider turn is a separate step (dsh-tui-live-turn): a
+            # one-shot in-box `dsh headless` on the same ollama-cloud route,
+            # because driving the interactive composer's submit is
+            # keyboard-timing racy.
             - check: the dsh-TUI terminal channel renders and carries typed input over the tmux channel
               id: dsh-tui-session
               timeout: 300s
