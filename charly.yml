@@ -301,7 +301,7 @@ check-dsh-pod:
                 chmod +x "$D/.npm-global/bin/dsh"
                 printf '#!/bin/sh\nexit 0\n' > "$D/socat"
                 chmod +x "$D/socat"
-                ARGV_FILE="$D/argv" HOME="$D" \
+                ARGV_FILE="$D/argv" HOME="$D" DSH_HOME="$D/.dsh" \
                   DSH_WEB_TRUSTED_HOSTS="a.invalid:3080,b.invalid:3080" \
                   PATH="$D:$PATH" bash "$H/.local/bin/dsh-entrypoint" </dev/null >/dev/null 2>&1 || true
                 grep -qx -- '--trusted-host' "$D/argv"
