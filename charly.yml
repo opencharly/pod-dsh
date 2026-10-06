@@ -441,25 +441,17 @@ check-dsh-tui-pod:
                     printf 'OLLAMA_API_KEY=%s\n' "$KEY" > "$DIR/.env"
                     chmod 600 "$DIR/.env"
                     RUN=0198f140-6b7a-7b90-8a10-aabbccddee11
-                    PROFILE='{"name":"dsh-tui","entrypoint":["dsh-tui"],"cols":140,"rows":44,"keys":["enter","escape","tab"],"persistence":"required","transcript":"both"}'
+                    # The prompt rides the launcher as an INITIAL PROMPT positional
+                    # (dsh-TUI's own initialPromptFromCmdlineArgs), so it is submitted
+                    # by the app — no tmux `Enter` to race the composer. A prior
+                    # input+enter form intermittently left the prompt typed-but-
+                    # unsubmitted (measured: the stream showed it still in the
+                    # composer), because the render gate can fire on the splash.
+                    PROFILE='{"name":"dsh-tui","entrypoint":["dsh-tui","Compute 6153 plus 5. Answer with only the numeral."],"cols":140,"rows":44,"keys":["enter","escape","tab"],"persistence":"required","transcript":"both"}'
                     TARGET=check-dsh-tui-pod
                     # Deliver the key into the pod's credential store location.
                     ${CHARLY_BIN} cp "$TARGET" "$DIR/.env" :/home/user/.dsh/.env 2>>"$LOG"
                     ${CHARLY_BIN} agent terminal launch "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" | grep -q '"state":"detached"'
-                    RENDERED=0
-                    for i in $(seq 1 20); do
-                      sleep 1
-                      SNAP="$(${CHARLY_BIN} agent terminal snapshot "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true)"
-                      if printf '%s' "$SNAP" | grep -qE 'Say something|deepseek-v4'; then RENDERED=1; break; fi
-                    done
-                    if [ "$RENDERED" != 1 ]; then
-                      echo 'dsh-tui-live-turn: the TUI never rendered the chat composer' >&2
-                      printf '%s\n' "$SNAP" >&2 || true
-                      cat "$LOG" >&2 || true
-                      exit 1
-                    fi
-                    ${CHARLY_BIN} agent terminal input "$PROFILE" 'Compute 6153 plus 5. Answer with only the numeral.' --target "$TARGET" --run-id "$RUN" 2>>"$LOG"
-                    ${CHARLY_BIN} agent terminal key "$PROFILE" enter --target "$TARGET" --run-id "$RUN" 2>>"$LOG"
                     # Poll the DURABLE TRANSCRIPT, not the virtual-screen snapshot:
                     # once the answer arrives the TUI scrolls it out of the visible
                     # viewport, so the reconstructed snapshot can miss it (measured:
@@ -467,7 +459,7 @@ check-dsh-tui-pod:
                     # only the still-typed composer). The transcript is the ground
                     # truth of what the process emitted.
                     ANSWERED=0
-                    for i in $(seq 1 60); do
+                    for i in $(seq 1 90); do
                       sleep 2
                       TXT="$(${CHARLY_BIN} agent terminal transcript "$RUN" 2>>"$LOG" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const text=JSON.parse(s).map(f=>(f.data?Buffer.from(f.data,"base64").toString():"")+(f.snapshot||"")).join("\n");process.stdout.write(text.includes("6158")?"YES":"NO")})' 2>>"$LOG" || true)"
                       if [ "$TXT" = "YES" ]; then ANSWERED=1; break; fi
