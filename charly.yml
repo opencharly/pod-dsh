@@ -363,14 +363,21 @@ check-dsh-tui-pod:
                     DIR=$(mktemp -d)
                     LOG="$DIR/commands.log"
                     export CHARLY_AGENT_STATE_DIR="$DIR/state"
-                    RUN=0198f140-6b7a-7b90-8a10-aabbccddee10
                     PROFILE='{"name":"dsh-tui","entrypoint":["dsh-tui"],"cols":140,"rows":44,"keys":["enter","escape","tab"],"persistence":"required","transcript":"both"}'
                     TARGET=check-dsh-tui-pod
                     # Snapshot the composed image labels to prove the channel is baked.
                     ${CHARLY_BIN} box labels dsh-tui-app --format agent_provide 2>>"$LOG" | grep -q '"provider":"tmux"'
                     ${CHARLY_BIN} box labels dsh-tui-app --format terminal_profiles 2>>"$LOG" | grep -q '"dsh-tui"'
-                    # Launch the detached TUI through the pod's terminal channel.
-                    ${CHARLY_BIN} agent terminal launch "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" | grep -q '"state":"detached"'
+                    # Launch the detached TUI through the pod's terminal channel. NO
+                    # --run-id: a hardcoded id collides across the check-live and
+                    # check-live-rebuild passes (the same plan runs twice) and across
+                    # retries, leaving a stale tmux socket that makes the next launch
+                    # render blank (measured). The launch generates a unique id, which
+                    # we read back — the check-agent-pod precedent.
+                    LAUNCHED="$(${CHARLY_BIN} agent terminal launch "$PROFILE" --target "$TARGET" 2>>"$LOG")"
+                    printf '%s' "$LAUNCHED" | grep -q '"state":"detached"'
+                    RUN="$(printf '%s' "$LAUNCHED" | sed -n 's/.*"run_id":"\([^"]*\)".*/\1/p')"
+                    test -n "$RUN"
                     # Let the TUI compose its first frame, then take a structured snapshot.
                     RENDERED=0
                     for i in $(seq 1 20); do
@@ -444,7 +451,6 @@ check-dsh-tui-pod:
                     export CHARLY_AGENT_STATE_DIR="$DIR/state"
                     printf 'OLLAMA_API_KEY=%s\n' "$KEY" > "$DIR/.env"
                     chmod 600 "$DIR/.env"
-                    RUN=0198f140-6b7a-7b90-8a10-aabbccddee11
                     # The prompt rides the launcher as an INITIAL PROMPT positional
                     # (dsh-TUI's own initialPromptFromCmdlineArgs), so it is submitted
                     # by the app — no tmux `Enter` to race the composer. A prior
@@ -455,7 +461,13 @@ check-dsh-tui-pod:
                     TARGET=check-dsh-tui-pod
                     # Deliver the key into the pod's credential store location.
                     ${CHARLY_BIN} cp "$TARGET" "$DIR/.env" :/home/user/.dsh/.env 2>>"$LOG"
-                    ${CHARLY_BIN} agent terminal launch "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" | grep -q '"state":"detached"'
+                    # NO --run-id: a hardcoded id collides across the check-live and
+                    # check-live-rebuild passes and across retries, leaving a stale
+                    # tmux socket that makes the launch render blank (measured).
+                    LAUNCHED="$(${CHARLY_BIN} agent terminal launch "$PROFILE" --target "$TARGET" 2>>"$LOG")"
+                    printf '%s' "$LAUNCHED" | grep -q '"state":"detached"'
+                    RUN="$(printf '%s' "$LAUNCHED" | sed -n 's/.*"run_id":"\([^"]*\)".*/\1/p')"
+                    test -n "$RUN"
                     # Poll the DURABLE TRANSCRIPT, not the virtual-screen snapshot:
                     # once the answer arrives the TUI scrolls it out of the visible
                     # viewport, so the reconstructed snapshot can miss it (measured:
