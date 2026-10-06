@@ -1,0 +1,148 @@
+# The dsh-tui candy — the DeepSeek Harness terminal UI (the dsh-TUI plugin).
+#
+# dsh-TUI (https://github.com/ccch1mneyyy/dsh-TUI, npm
+# @deepseek-harness-tui/dsh-tui) is a PURE DSH PLUGIN, not a daemon: it is added
+# to a dsh *profile* (`dsh plugin --profile dsh-tui add …`) and launched by the
+# shipped `dsh-tui` / `dst` launcher (or `dsh --profile dsh-tui`). It is an
+# interactive TTY UI, so this candy also publishes a `terminal_profile` and an
+# `agent_provide: tmux` channel — the typed-terminal route (`layer-claude-code`
+# is the reference) — which is how a disposable bed drives and proves it.
+#
+# Concern split (R3): the CLI install is candy/dsh, the web UI is candy/dsh-web;
+# this candy composes `dsh` and adds only the TUI plugin + its channel.
+#
+# Deterministic first launch: the candy pre-records the first-run wizard
+# (`~/.dsh-tui/onboarding.json`) and disables the launchpad
+# (`DSH_TUI_NO_LAUNCHPAD=1`), so the process lands directly on the chat screen
+# with no keyboard-owning dialog — the state a terminal channel can drive.
+dsh-tui:
+    candy:
+        description: |
+            Installs the dsh-TUI terminal-UI plugin (@deepseek-harness-tui/dsh-tui
+            0.13.0) into the `dsh-tui` profile of the DeepSeek Harness and exposes
+            it as a typed terminal channel. The candy ships a package.json pinning
+            the plugin, which the npm builder installs globally under
+            NPM_CONFIG_PREFIX (~/.npm-global) so the `dsh-tui` / `dst` launcher is
+            on PATH; it composes the `dsh` CLI candy (which requires nodejs
+            >=22.19.0 and pnpm >=10 — dsh plugin delegates installs to pnpm). The
+            TUI is added to the profile by `dsh plugin --profile dsh-tui add …`
+            at build time, so a fresh container needs no network to launch it.
+            The first-run wizard is pre-recorded and the launchpad disabled, so
+            the TUI lands on the chat screen deterministically; the published
+            terminal_profile + agent_provide tmux channel let a disposable R10
+            bed launch, snapshot, type into, and read the TUI. The candy writes
+            the `ollama-cloud` LLM route to `~/.dsh/cordis.patch.yml`; the route
+            authenticates with OLLAMA_API_KEY from the dsh credential store (the
+            launch environment, `~/.dsh/.env`, or the config UI) — the key is not
+            part of this candy and a provider turn needs it. Every fact is
+            observable: the dsh-tui launcher at ~/.npm-global/bin/dsh-tui, the
+            profile manifest at $DSH_HOME/profiles/dsh-tui/package.json,
+            `dsh-tui version` printing the launcher AND profile versions, and the
+            plugin listed by `dsh plugin --profile dsh-tui list`.
+        require:
+            - dsh
+            - '@github.com/opencharly/layer-tmux:v2026.240.0202'
+        path_append:
+            - "~/.npm-global/bin"
+        env:
+            # The launchpad owns the keyboard on an ordinary launch; a terminal
+            # channel cannot drive it reliably. Disable it so the TUI boots
+            # straight onto the chat composer.
+            DSH_TUI_NO_LAUNCHPAD: "1"
+        agent_provide:
+            - provider: tmux
+              protocol_version: 2
+              profiles: [dsh-tui]
+              interaction_modes: [terminal]
+              persistence: required
+              semantic_completion: false
+        terminal_profile:
+            dsh-tui:
+                name: dsh-tui
+                entrypoint: [dsh-tui]
+                cols: 140
+                rows: 44
+                keys: [enter, escape, tab, backspace, up, down, left, right, home, end, page-up, page-down, delete, insert, ctrl-a, ctrl-c, ctrl-d, ctrl-e, ctrl-l, ctrl-z]
+                signals: [interrupt, eof, suspend]
+                persistence: required
+                transcript: both
+        plan:
+            - run: create the dsh-tui prefs directory
+              mkdir: "${HOME}/.dsh-tui"
+              run_as: "${USER}"
+              mode: "0755"
+            - run: pre-record the dsh-TUI first-run wizard so the channel reaches the chat screen deterministically
+              write: "${HOME}/.dsh-tui/onboarding.json"
+              run_as: "${USER}"
+              content: |
+                {
+                  "completed": true,
+                  "version": 1
+                }
+            - run: pre-record the dsh-TUI workspace home as seen so the channel boots the chat composer, not the first-run home
+              write: "${HOME}/.dsh-tui/home.json"
+              run_as: "${USER}"
+              content: |
+                {
+                  "seen": true
+                }
+            - run: install the ollama-cloud LLM route as the dsh home-level patch (applies to every profile)
+              copy: cordis.patch.yml
+              to: "${HOME}/.dsh/cordis.patch.yml"
+              mode: "0644"
+              run_as: "${USER}"
+            - run: run the auto-detected npm builders (install the dsh CLI + the dsh-tui launcher globally)
+              build: all
+              run_as: "${USER}"
+            - run: add the dsh-TUI plugin to the dsh-tui profile so a fresh container needs no network to launch it
+              command: |
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                export PATH="$H/.npm-global/bin:$PATH"
+                "$H/.npm-global/bin/dsh" plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui@0.13.0
+                test -f "$H/.dsh/profiles/dsh-tui/package.json"
+              run_as: "${USER}"
+            - check: the dsh-tui launcher is installed into the npm global bin directory
+              file:
+                file: ${HOME}/.npm-global/bin/dsh-tui
+                exists: true
+            - check: the dsh-tui plugin is unpacked under the npm global lib directory
+              file:
+                file: ${HOME}/.npm-global/lib/node_modules/@deepseek-harness-tui/dsh-tui/package.json
+                exists: true
+            - check: the dsh-TUI plugin is added to the dsh-tui profile at build time
+              file:
+                file: ${HOME}/.dsh/profiles/dsh-tui/package.json
+                exists: true
+                contains: "@deepseek-harness-tui/dsh-tui"
+            - # printenv (not `test "${VAR}"`) — a check step's command goes through
+              # charly's variable substitution, so `${DSH_TUI_NO_LAUNCHPAD}` would be
+              # read as an unresolved variable and silently SKIP the step.
+              check: the launchpad is disabled so the terminal channel reaches the composer
+              exit_status: 0
+              stdout:
+                - equals: "1"
+              command: printenv DSH_TUI_NO_LAUNCHPAD
+            - check: the first-run wizard is recorded so the channel does not open on it
+              file:
+                file: ${HOME}/.dsh-tui/onboarding.json
+                exists: true
+                contains: '"completed": true'
+            - check: the workspace home is recorded as seen so the channel boots the composer on first launch
+              file:
+                file: ${HOME}/.dsh-tui/home.json
+                exists: true
+                contains: '"seen": true'
+            - # Non-TTY safe: `dsh-tui version` prints the launcher AND the resolved
+              # profile version and exits 0 even with stdout redirected.
+              check: running dsh-tui version exits cleanly and reports the launcher and profile versions
+              exit_status: 0
+              stdout:
+                - contains: "0.13.0"
+              command: ${HOME}/.npm-global/bin/dsh-tui version
+            - # Non-TTY safe: `dsh-tui help` prints usage and exits 0 (no TTY needed).
+              check: running dsh-tui help exits cleanly and prints the command surface
+              exit_status: 0
+              stdout:
+                - contains: "version"
+                - contains: "help"
+              command: ${HOME}/.npm-global/bin/dsh-tui help

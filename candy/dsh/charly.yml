@@ -1,0 +1,49 @@
+# The dsh candy — the DeepSeek Harness CLI (the agent harness itself).
+#
+# Concern split (R3): this candy installs ONLY the `dsh` CLI globally via npm.
+#   - candy/dsh-web  — the loopback web UI + socat forwarder (dsh-app box).
+#   - candy/dsh-tui  — the terminal UI plugin (dsh-tui-app box).
+# Consumers that want just the CLI (a headless run, a TUI, an MCP probe)
+# compose this without pulling the web service or the TUI.
+dsh:
+    candy:
+        description: |
+            Installs the DeepSeek Harness `dsh` CLI globally via npm. The candy
+            depends on nodejs (>=22.19.0 — the dsh floor) and ships a
+            package.json pinning @deepseek-ai/dsh 0.2.0-rc.2, which the npm
+            builder installs globally under NPM_CONFIG_PREFIX (~/.npm-global).
+            This is the CLI-only candy: the web UI is candy/dsh-web and the
+            terminal UI is candy/dsh-tui. Every fact is observable: the dsh
+            binary at ~/.npm-global/bin/dsh, the unpacked package,
+            `dsh --version`/`--help`, and node >= 22.19.0.
+        require:
+            - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
+        plan:
+            - check: the dsh binary is installed into the npm global bin directory
+              file:
+                file: ${HOME}/.npm-global/bin/dsh
+                exists: true
+            - check: the dsh package is unpacked under the npm global lib directory
+              file:
+                file: ${HOME}/.npm-global/lib/node_modules/@deepseek-ai/dsh/package.json
+                exists: true
+            - check: running dsh --version exits cleanly and prints a semantic version
+              exit_status: 0
+              stdout:
+                - matches: "[0-9]+\\.[0-9]+"
+              command: ${HOME}/.npm-global/bin/dsh --version
+            - check: running dsh --help exits cleanly and lists the plugin and profile commands
+              exit_status: 0
+              stdout:
+                - contains: "plugin"
+                - contains: "--profile"
+              command: ${HOME}/.npm-global/bin/dsh --help
+            - # The dsh harness floor (node ^22.19.0 || >=24.0.0). No `${...}` anywhere:
+              # a check step's command goes through charly's variable substitution, which
+              # reads `${HOME:-default}` as a variable named `HOME:-default`, fails to
+              # resolve it, and SKIPS the step — trading a red check for a silently absent
+              # one. `node -e` with single quotes has no `${...}`, so it always runs.
+              check: node is at least 22.19.0 (the deepseek-harness dsh floor)
+              exit_status: 0
+              command: |
+                node -e 'const [maj,min]=process.versions.node.split(".").map(Number); if (maj<22||(maj===22&&min<19)) process.exit(1)'
