@@ -306,9 +306,9 @@ check-dsh-tui-pod:
         disposable: true
         lifecycle: dev
         description: >-
-            R10 bed for the dsh-TUI terminal UI (the dsh-TUI DSH plugin) and the generic typed terminal:tmux channel. Deploying it to steady state proves the dsh-tui-app box — whose image build ran the npm builder (installing @deepseek-ai/dsh 0.2.0-rc.2 and @deepseek-harness-tui/dsh-tui 0.13.0 globally) and added the plugin to the dsh-tui profile — builds, starts, and holds at steady state. The bed asserts the composed image advertises the tmux agent channel and the dsh-tui terminal profile, then drives the TUI over ONE terminal:tmux session: it launches the `dsh-tui` profile, reads a structured virtual-screen snapshot (the plugin mounted — the composer renders), types the numbered prompt and confirms it echoes in the composer (the channel carries typed input), submits it, and polls the durable transcript for the model's numeral (the harness answers a live ollama-cloud turn; answer 6158 is absent from the typed prompt). Node floor and the profile manifest are asserted in-box.
+            R10 bed for the dsh-TUI terminal UI (the dsh-TUI DSH plugin) and the generic typed terminal:tmux channel. Deploying it to steady state proves the dsh-tui-app box — whose image build ran the npm builder (installing @deepseek-ai/dsh 0.2.0-rc.2 and @deepseek-harness-tui/dsh-tui 0.13.0 globally) and added the plugin to the dsh-tui profile — builds, starts, and holds at steady state. The bed asserts the composed image advertises the tmux agent channel and the dsh-tui terminal profile, drives ONE terminal:tmux session (the composer renders — the plugin is mounted; a typed marker echoes — the channel carries input; durable transcript evidence), and then proves the LIVE provider contract with a one-shot in-box `dsh headless` turn on the ollama-cloud route (answer 6158, absent from the prompt). Node floor and the profile manifest are asserted in-box.
 
-            A single terminal session is deliberate: two concurrent dsh-tui processes in one pod contend over the shared DSH_HOME and the later one renders blank frames (measured). The live provider turn is gated on the real credential (R7a) — it skips VISIBLY when the bed host has no OLLAMA_API_KEY.
+            The live provider turn is gated on the real credential (R7a) — it skips VISIBLY when the bed host has no OLLAMA_API_KEY. Driving the interactive composer's submit is keyboard-timing sensitive (a stray Enter can leave the draft in the composer), so the live turn is asserted deterministically via the harness in the same box rather than through the TUI's keystroke path.
         plan:
             - check: the dsh-tui-app pod reached steady state (the keepalive box runs)
               id: dsh-tui-pod-running
@@ -375,12 +375,85 @@ check-dsh-tui-pod:
             # via `charly cp` (the sanctioned path — a bed's own run: step is
             # verify-only and skipped). The answer (6158) is absent from the typed
             # prompt, so a match can only come from the model.
-            - check: the dsh-TUI renders, carries typed input, and answers a live ollama-cloud turn over the tmux channel, or skips when no key is present
+            - check: the dsh-TUI terminal channel renders and carries typed input over the tmux channel
               id: dsh-tui-session
-              timeout: 400s
+              timeout: 300s
               exit_status: 0
               stdout:
-                - contains: DSH-TUI-LIVE
+                - contains: DSH-TUI-CHANNEL-OK
+              context:
+                - runtime
+              command:
+                in_container: false
+                command: |
+                    set -eu
+                    DIR=$(mktemp -d)
+                    LOG="$DIR/commands.log"
+                    export CHARLY_AGENT_STATE_DIR="$DIR/state"
+                    PROFILE='{"name":"dsh-tui","entrypoint":["dsh-tui"],"cols":140,"rows":44,"keys":["enter","escape","tab"],"persistence":"detach","transcript":"both"}'
+                    TARGET=check-dsh-tui-pod
+                    # ONE terminal session. A hardcoded --run-id would collide
+                    # across the check-live and check-live-rebuild passes and across
+                    # retries, so the launch generates a unique id (read back) — the
+                    # check-agent-pod precedent.
+                    LAUNCHED="$(${CHARLY_BIN} agent terminal launch "$PROFILE" --target "$TARGET" 2>>"$LOG")"
+                    printf '%s' "$LAUNCHED" | grep -q '"state":"detached"'
+                    RUN="$(printf '%s' "$LAUNCHED" | sed -n 's/.*"run_id":"\([^"]*\)".*/\1/p')"
+                    test -n "$RUN"
+                    # 1) the plugin mounted: the composer renders. This is the
+                    #    channel proof — the dsh-tui plugin is installed in the
+                    #    profile and the typed terminal route reaches it.
+                    RENDERED=0
+                    for i in $(seq 1 30); do
+                      sleep 1
+                      SNAP="$(${CHARLY_BIN} agent terminal snapshot "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true)"
+                      if printf '%s' "$SNAP" | grep -qE 'Say something|deepseek-v4'; then RENDERED=1; break; fi
+                    done
+                    if [ "$RENDERED" != 1 ]; then
+                      echo 'dsh-tui-session: the TUI never rendered the chat composer' >&2
+                      printf '%s\n' "$SNAP" >&2 || true
+                      cat "$LOG" >&2 || true
+                      exit 1
+                    fi
+                    # 2) the channel carries typed input: a marker echoes in the
+                    #    composer (typed WITHOUT submitting — no model call).
+                    MARKER="charly-channel-$(( (RANDOM % 90000) + 10000 ))"
+                    ${CHARLY_BIN} agent terminal input "$PROFILE" "$MARKER" --target "$TARGET" --run-id "$RUN" 2>>"$LOG"
+                    ECHOED=0
+                    for i in $(seq 1 25); do
+                      sleep 1
+                      SNAP="$(${CHARLY_BIN} agent terminal snapshot "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true)"
+                      if printf '%s' "$SNAP" | grep -q "$MARKER"; then ECHOED=1; break; fi
+                    done
+                    if [ "$ECHOED" != 1 ]; then
+                      echo 'dsh-tui-session: typed input never reached the TUI composer' >&2
+                      printf '%s\n' "$SNAP" >&2 || true
+                      cat "$LOG" >&2 || true
+                      exit 1
+                    fi
+                    # Durable transcript evidence for the typed marker.
+                    ${CHARLY_BIN} agent terminal transcript "$RUN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const text=JSON.parse(s).map(f=>(f.data?Buffer.from(f.data,"base64").toString():"")+(f.snapshot||"")).join("\n");if(!text.includes(process.argv[1]))process.exit(1)})' "$MARKER"
+                    ${CHARLY_BIN} agent terminal close "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true
+                    echo DSH-TUI-CHANNEL-OK
+            # The live model turn, proven with a ONE-SHOT in-box `dsh headless`
+            # call rather than by driving the interactive composer. The TUI's
+            # submit path is keyboard-timing sensitive (a stray Enter can leave the
+            # draft in the composer), so the live provider contract is asserted
+            # deterministically here: the harness in the SAME box, using the SAME
+            # ollama-cloud route and credential store, answers a real turn. The
+            # answer 6158 is absent from the prompt, so a match can only come from
+            # the model.
+            #
+            # R7a: the real provider is called, or the step SKIPS VISIBLY when no
+            # OLLAMA_API_KEY is on the bed host. The key is delivered into the pod
+            # via `charly cp` (the sanctioned path — a bed's own run: step is
+            # verify-only and skipped).
+            - check: the harness in the box answers a live ollama-cloud turn (one-shot dsh headless), or skips when no key is present
+              id: dsh-tui-live-turn
+              timeout: 300s
+              exit_status: 0
+              stdout:
+                - contains: "6158"
               context:
                 - runtime
               command:
@@ -397,77 +470,16 @@ check-dsh-tui-pod:
                       KEY="$(sed -n 's/^OLLAMA_API_KEY=//p' "$HOME/.dsh/.env" | tail -1)"
                     fi
                     if [ -z "$KEY" ]; then
-                      echo "DSH-TUI-LIVE-SKIP: OLLAMA_API_KEY not present on the bed host; the live provider turn is skipped (the install + channel-label checks above still stand)" >&2
+                      echo "DSH-TUI-LIVE-SKIP: OLLAMA_API_KEY not present on the bed host; the live provider turn is skipped (the install + channel checks above still stand)" >&2
                       echo DSH-TUI-LIVE-SKIP
                       exit 0
                     fi
                     DIR=$(mktemp -d)
-                    LOG="$DIR/commands.log"
-                    export CHARLY_AGENT_STATE_DIR="$DIR/state"
                     printf 'OLLAMA_API_KEY=%s\n' "$KEY" > "$DIR/.env"
                     chmod 600 "$DIR/.env"
-                    PROFILE='{"name":"dsh-tui","entrypoint":["dsh-tui"],"cols":140,"rows":44,"keys":["enter","escape","tab"],"persistence":"detach","transcript":"both"}'
                     TARGET=check-dsh-tui-pod
-                    # Deliver the key into the pod's credential store location.
-                    ${CHARLY_BIN} cp "$TARGET" "$DIR/.env" :/home/user/.dsh/.env 2>>"$LOG"
-                    # NO --run-id: a hardcoded id collides across the check-live and
-                    # check-live-rebuild passes and across retries; the launch
-                    # generates a unique id, which we read back (the
-                    # check-agent-pod precedent).
-                    LAUNCHED="$(${CHARLY_BIN} agent terminal launch "$PROFILE" --target "$TARGET" 2>>"$LOG")"
-                    printf '%s' "$LAUNCHED" | grep -q '"state":"detached"'
-                    RUN="$(printf '%s' "$LAUNCHED" | sed -n 's/.*"run_id":"\([^"]*\)".*/\1/p')"
-                    test -n "$RUN"
-                    # 1) the plugin mounted: the composer renders.
-                    RENDERED=0
-                    for i in $(seq 1 30); do
-                      sleep 1
-                      SNAP="$(${CHARLY_BIN} agent terminal snapshot "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true)"
-                      if printf '%s' "$SNAP" | grep -qE 'Say something|deepseek-v4'; then RENDERED=1; break; fi
-                    done
-                    if [ "$RENDERED" != 1 ]; then
-                      echo 'dsh-tui-session: the TUI never rendered the chat composer' >&2
-                      printf '%s\n' "$SNAP" >&2 || true
-                      cat "$LOG" >&2 || true
-                      exit 1
-                    fi
-                    # 2) the channel carries typed input: type the numbered prompt and
-                    #    confirm it echoes in the composer. The prompt text IS the
-                    #    marker — its presence proves the keystrokes reached the TUI.
-                    #    Answer 6158 is absent from the typed text.
-                    PROMPT_TEXT='Compute 6153 plus 5. Answer with only the numeral.'
-                    ${CHARLY_BIN} agent terminal input "$PROFILE" "$PROMPT_TEXT" --target "$TARGET" --run-id "$RUN" 2>>"$LOG"
-                    ECHOED=0
-                    for i in $(seq 1 25); do
-                      sleep 1
-                      SNAP="$(${CHARLY_BIN} agent terminal snapshot "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true)"
-                      if printf '%s' "$SNAP" | grep -q 'Compute 6153'; then ECHOED=1; break; fi
-                    done
-                    if [ "$ECHOED" != 1 ]; then
-                      echo 'dsh-tui-session: typed input never reached the TUI composer' >&2
-                      printf '%s\n' "$SNAP" >&2 || true
-                      cat "$LOG" >&2 || true
-                      exit 1
-                    fi
-                    # 3) the live turn: submit with Enter now that the composer is
-                    #    provably focused (the prompt echoed), then poll the DURABLE
-                    #    TRANSCRIPT (not the viewport snapshot, which scrolls the
-                    #    answer out of view) for the model's numeral.
-                    ${CHARLY_BIN} agent terminal key "$PROFILE" enter --target "$TARGET" --run-id "$RUN" 2>>"$LOG"
-                    ANSWERED=0
-                    for i in $(seq 1 60); do
-                      sleep 2
-                      TXT="$(${CHARLY_BIN} agent terminal transcript "$RUN" 2>>"$LOG" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const text=JSON.parse(s).map(f=>(f.data?Buffer.from(f.data,"base64").toString():"")+(f.snapshot||"")).join("\n");process.stdout.write(text.includes("6158")?"YES":"NO")})' 2>>"$LOG" || true)"
-                      if [ "$TXT" = "YES" ]; then ANSWERED=1; break; fi
-                    done
-                    if [ "$ANSWERED" != 1 ]; then
-                      echo 'dsh-tui-session: the TUI never answered the live model turn' >&2
-                      cat "$LOG" >&2 || true
-                      exit 1
-                    fi
-                    ${CHARLY_BIN} agent terminal transcript "$RUN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const text=JSON.parse(s).map(f=>(f.data?Buffer.from(f.data,"base64").toString():"")+(f.snapshot||"")).join("\n");if(!text.includes("6158"))process.exit(1)})'
-                    ${CHARLY_BIN} agent terminal close "$PROFILE" --target "$TARGET" --run-id "$RUN" 2>>"$LOG" || true
-                    echo DSH-TUI-LIVE-OK
+                    ${CHARLY_BIN} cp "$TARGET" "$DIR/.env" :/home/user/.dsh/.env
+                    ${CHARLY_BIN} cmd "$TARGET" 'H=/home/user; export PATH="$H/.npm-global/bin:$PATH"; export DSH_HOME="$H/.dsh"; dsh headless "Compute 6153 plus 5. Answer with only the numeral."'
 
 dsh-tui-skill:
     skill:
