@@ -22,10 +22,17 @@ The web app binds `127.0.0.1:3080` **only** (dsh-web-app hard-rejects
 runs the web app on loopback and exec's a `socat` forwarder on the container's
 `eth0:3081`; the published port reaches the UI through socat.
 
-The web UI authenticates every request with a random per-process launch token
-(no flag disables it). The entrypoint captures the token from the readiness line
-and persists it to `$DSH_HOME/web-token` on the `dsh` volume, so a fresh
-`charly update` rebuild re-captures it. A tokenless `GET /` returns `401`.
+The web UI authenticates at **two** layers. A random per-process launch token
+gates the root `GET /?token=…` (no flag disables it); the entrypoint captures it
+from the readiness line and persists it to `$DSH_HOME/web-token` on the `dsh`
+volume, so a fresh `charly update` rebuild re-captures it. A tokenless `GET /`
+returns `401`. Separately, a Host/Origin browser-trust fence
+(`api-request-trust`) gates every `/api/*` call: the request `Host` must be
+loopback or a configured `trustedHosts` authority, or the call returns `403`.
+Because the app binds loopback only, the default published-port access stays on a
+trusted loopback authority; a deployment reached through a reverse proxy
+(`tailscale serve`, an SSH `-L` tunnel) must set `DSH_WEB_TRUSTED_HOSTS` to the
+proxy `host:port` so the entrypoint forwards it as `--trusted-host`.
 
 | Property | Value |
 |---|---|
@@ -33,7 +40,7 @@ and persists it to `$DSH_HOME/web-token` on the `dsh` volume, so a fresh
 | Ports | `3080` (web UI, loopback only), `3081` (socat forwarder, published) |
 | Requires | `dsh`, `layer-nodejs` (node ≥22.19.0), `layer-supervisord` |
 | Volume | `dsh` at `~/.dsh` (profiles, plugin data, the captured web token) |
-| Env | `DSH_HOME=~/.dsh` |
+| Env | `DSH_HOME=~/.dsh`, `DSH_WEB_TRUSTED_HOSTS` (optional; proxy authorities) |
 | Package | `socat` |
 
 ### dsh-tui

@@ -59,6 +59,10 @@ dsh-skill:
             | `DSH_HOME` | `~/.dsh` |
             | `DSH_WEB_TRUSTED_HOSTS` | unset/empty by default; a space- or comma-separated list of `host:port` authorities the entrypoint forwards as repeatable `--trusted-host` (set it when the pod is reached through a reverse proxy) |
 
+            A reverse-proxy deployment (`tailscale serve`, an SSH `-L` tunnel) presents a
+            non-loopback Host, so without this the shell loads while every `/api/*`
+            call returns 403.
+
             ## Packages
 
             RPM/DEB/PAC: `socat` (the loopback→eth0 forwarder)
