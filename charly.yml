@@ -349,7 +349,7 @@ check-dsh-pod:
               http:
                 http: "http://127.0.0.1:${HOST_PORT:3081}/"
                 status: 401
-            - check: the seeded dsh volume holds the four-bundle web profile AND the ollama-cloud LLM route
+            - check: the web profile is seeded with all four experimental-feature bundles (agent-team, auto-review, schedule, voice)
               id: dsh-web-profile-seeded
               exit_status: 0
               context: [runtime]
@@ -362,7 +362,6 @@ check-dsh-pod:
                 for b in agent-team-profile auto-review schedule-bundle voice-input-bundle; do
                   grep -q "$b" "$P"
                 done
-                grep -q "ollama-cloud" "$D/cordis.patch.yml"
             - check: the web UI's Host-trust fence rejects an untrusted (non-loopback) Host with 403 on /api/*
               id: dsh-web-host-fence
               timeout: 30s

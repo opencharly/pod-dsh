@@ -86,11 +86,6 @@ dsh-tui:
                 {
                   "seen": true
                 }
-            - run: install the ollama-cloud LLM route as the dsh home-level patch (applies to every profile)
-              copy: cordis.patch.yml
-              to: "${HOME}/.dsh/cordis.patch.yml"
-              mode: "0644"
-              run_as: "${USER}"
             - run: run the auto-detected npm builders (install the dsh CLI + the dsh-tui launcher globally)
               build: all
               run_as: "${USER}"
