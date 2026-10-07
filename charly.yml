@@ -355,7 +355,9 @@ check-dsh-pod:
               context: [runtime]
               command: |
                 H="$(getent passwd "$(id -u)" | cut -d: -f6)"
-                P="${DSH_HOME:-$H/.dsh}/profiles/web/package.json"
+                D="$DSH_HOME"
+                [ -n "$D" ] || D="$H/.dsh"
+                P="$D/profiles/web/package.json"
                 test -f "$P"
                 for b in agent-team-profile auto-review schedule-bundle voice-input-bundle; do
                   grep -q "$b" "$P"
