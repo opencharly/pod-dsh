@@ -1,7 +1,11 @@
 {
   "name": "dsh-profile-web",
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "@perrylink/dsh-github": "github:opencharly/dsh-github#db37b9b6f81a72f884c362ce6f2c04d96bf6bad8",
+    "dsh-git-worktree": "github:opencharly/dsh-git-worktree#a910ffa0619954d951705a9832c1176890c4dc61",
+    "dsh-workspace-enhancement": "github:opencharly/dsh-workspace-enhancement#b57db61a18132ba0af275cabbc83eeb2a6f48f21"
+  },
   "dsh": {
     "profile": {
       "bundles": [
@@ -10,7 +14,10 @@
         "@deepseek-ai/dsh-experimental-agent-team-profile",
         "@deepseek-ai/dsh-experimental-auto-review",
         "@deepseek-ai/dsh-experimental-schedule-bundle",
-        "@deepseek-ai/dsh-experimental-voice-input-bundle"
+        "@deepseek-ai/dsh-experimental-voice-input-bundle",
+        "@perrylink/dsh-github",
+        "dsh-git-worktree",
+        "dsh-workspace-enhancement"
       ]
     }
   }
