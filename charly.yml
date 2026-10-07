@@ -207,6 +207,9 @@ dsh-skill:
             `candy/dsh-web/web-profile/vendor-tgz/` and consumed as `file:` deps, so
             the profile install resolves them OFFLINE (no codeload fetch, no
             per-dep npm-install bootstrap — the flake `pod-dsh#26` recorded).
+            Each tarball's source repo+commit and SHA-256 are recorded in
+            `vendor-tgz/README.md`, with the four hashes in
+            `vendor-tgz/SHA256SUMS` (verified in the volume by the bed).
             `dsh-opencharly` is server-only (no browser client); the others ship a
             `lib/client.js` browser half. All are installed at image BUILD time
             into `~/.local/share/dsh/profile-home` and seeded into the `dsh` volume
@@ -381,6 +384,24 @@ check-dsh-pod:
                   grep -q "$b" "$P"
                 done
                 grep -q "ollama-cloud" "$D/cordis.patch.yml"
+            - check: the web profile resolves the four plugins OFFLINE from the vendored tarballs (fails if reverted to the git deps)
+              id: dsh-web-profile-vendored
+              exit_status: 0
+              context: [runtime]
+              command: |
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                D="$DSH_HOME"
+                [ -n "$D" ] || D="$H/.dsh"
+                P="$D/profiles/web/package.json"
+                # Every plugin dep is a file: dep on a vendored tarball — no
+                # `github:`/`git+`/`https:` specifier survives. A revert to the
+                # git deps names the plugin but not this path, so it FAILS here.
+                test "$(grep -c '"file:./vendor-tgz/' "$P")" = 4
+                ! grep -qE '"(github|git\+|https?):' "$P"
+                # The vendored tarballs are present and their bytes match the
+                # committed manifest (SHA256SUMS sits beside them).
+                cd "$D/profiles/web/vendor-tgz"
+                sha256sum -c SHA256SUMS
             - check: the web UI's Host-trust fence rejects an untrusted (non-loopback) Host with 403 on /api/*
               id: dsh-web-host-fence
               timeout: 30s

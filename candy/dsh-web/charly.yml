@@ -68,10 +68,11 @@ dsh-web:
             # binary linked against libatomic.so.1 — absent from a minimal Fedora,
             # so an install dies with "error while loading shared libraries".
             #
-            # NOT golang: the four git-hosted plugins are now VENDORED prebuilt
+            # NOT golang: the THREE git-hosted plugins are now VENDORED prebuilt
             # as tarballs under web-profile/vendor-tgz/ (file: deps), so nothing builds a Go core
             # at install time — that was only needed when `dsh-workspace-enhancement`
-            # was a git dep building `core/dist` via `go`.
+            # was a git dep building `core/dist` via `go`. (`dsh-opencharly` was
+            # never a git dep; it is the native plugin, also vendored prebuilt.)
             - socat
             - gcc
             - gcc-c++
@@ -202,6 +203,24 @@ dsh-web:
                   grep -q "$b" "$P"
                 done
                 grep -q "ollama-cloud" "$D/cordis.patch.yml"
+            - check: the web profile resolves the four plugins OFFLINE from the vendored tarballs (fails if reverted to the git deps)
+              timeout: 30s
+              context:
+                - runtime
+              command: |
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                D="$DSH_HOME"
+                [ -n "$D" ] || D="$H/.dsh"
+                P="$D/profiles/web/package.json"
+                # Every plugin dep is a file: dep on a vendored tarball — no
+                # `github:`/`git+`/`codeload` specifier survives. A revert to the
+                # git deps names the plugin but not this path, so it FAILS here.
+                test "$(grep -c '"file:./vendor-tgz/' "$P")" = 4
+                ! grep -qE '"(github|git\+|https?):' "$P"
+                # The vendored tarballs are present and their bytes match the
+                # committed manifest (SHA256SUMS sits beside them).
+                cd "$D/profiles/web/vendor-tgz"
+                sha256sum -c SHA256SUMS
             - check: the web profile's node_modules carries all four vendored plugins' built lib/ (so the DSH loader can import them)
               timeout: 30s
               context:
