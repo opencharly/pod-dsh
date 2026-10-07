@@ -28,9 +28,15 @@ dsh-web:
             to the proxy authority (`host:port`) so the entrypoint adds
             `--trusted-host`; without it every `/api/*` call returns 403 and the
             SPA renders a dead page even though `/` returns 200.
+            The candy seeds the web profile with the full experimental-feature
+            set — the four shipped optional bundles Agent Teams
+            (agent-team-profile), Auto review, Schedule/Automation tasks, and
+            Voice input — staged into the dsh volume at deploy time (the
+            notebook-templates `data:` pattern) and copied into
+            $DSH_HOME/profiles/web by the entrypoint when no profile exists.
             Every fact is observable: the running service, the persisted token
-            file, and the HTTP 200 the token-authenticated web UI answers on
-            127.0.0.1:3080.
+            file, the seeded profile manifest listing all four bundles, and the
+            HTTP 200 the token-authenticated web UI answers on 127.0.0.1:3080.
         require:
             - dsh
             - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
@@ -48,6 +54,22 @@ dsh-web:
         volume:
             - name: dsh
               path: "~/.dsh"
+        # Stage the full experimental-feature web profile into the dsh volume at
+        # deploy time. `src` is relative to THIS candy dir; the generator stages
+        # it to /data/dsh/profiles/web (volume + dest) in the image, and the
+        # runtime seeder copies it into the EMPTY `dsh` named volume at
+        # profiles/web — so $DSH_HOME/profiles/web/ holds the four profile files
+        # on first boot. The set is the four shipped bundles dsh offers
+        # switched-off (app-boot OPTIONAL_BUNDLES): Agent Teams, Auto review,
+        # Schedule/Automation tasks, and Voice input — so a fresh pod has every
+        # feature enabled with no network. charly's seeder is `initial` (it gates
+        # on the volume being empty), so a user's later profile edits are kept;
+        # node_modules resolves from the globally-installed dsh, so only the four
+        # small text files are staged.
+        data:
+            - src: web-profile
+              volume: dsh
+              dest: profiles/web
         service:
             - name: dsh
               exec: "%(ENV_HOME)s/.local/bin/dsh-entrypoint"
@@ -93,3 +115,16 @@ dsh-web:
               http:
                 http: http://127.0.0.1:${HOST_PORT:3081}/
                 status: 401
+            - check: the web profile is seeded with all four experimental-feature bundles
+              timeout: 30s
+              context:
+                - runtime
+              command: |
+                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
+                D="$DSH_HOME"
+                [ -n "$D" ] || D="$H/.dsh"
+                P="$D/profiles/web/package.json"
+                test -f "$P"
+                for b in agent-team-profile auto-review schedule-bundle voice-input-bundle; do
+                  grep -q "$b" "$P"
+                done
