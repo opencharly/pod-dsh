@@ -14,9 +14,6 @@ autoInstallPeers: false
 # ERR_PNPM_INVALID_VERSION_UNION; a bare name matches the git-hosted dep on BOTH
 # 10.33.4 and 10.34.6, so this file is portable across the layer-nodejs pin.
 allowBuilds:
-  "@perrylink/dsh-github": true
-  dsh-git-worktree: true
-  dsh-workspace-enhancement: true
   cpu-features: true
   ssh2: true
 
