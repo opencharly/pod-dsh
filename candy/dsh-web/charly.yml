@@ -32,11 +32,14 @@ dsh-web:
             set — the four shipped optional bundles Agent Teams
             (agent-team-profile), Auto review, Schedule/Automation tasks, and
             Voice input — staged into the dsh volume at deploy time (the
-            notebook-templates `data:` pattern) and copied into
-            $DSH_HOME/profiles/web by the entrypoint when no profile exists.
+            notebook-templates `data:` pattern). The ollama-cloud LLM route
+            (shipped by the shared `dsh` candy) is restored into the volume by
+            the entrypoint from the durable ~/.local/share/dsh copy on first
+            boot, since a named volume shadows the build-time ~/.dsh.
             Every fact is observable: the running service, the persisted token
-            file, the seeded profile manifest listing all four bundles, and the
-            HTTP 200 the token-authenticated web UI answers on 127.0.0.1:3080.
+            file, the seeded profile manifest listing all four bundles plus the
+            route, and the HTTP 200 the token-authenticated web UI answers on
+            127.0.0.1:3080.
         require:
             - dsh
             - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
@@ -115,7 +118,7 @@ dsh-web:
               http:
                 http: http://127.0.0.1:${HOST_PORT:3081}/
                 status: 401
-            - check: the web profile is seeded with all four experimental-feature bundles
+            - check: the web profile is seeded with all four experimental-feature bundles AND the volume's ollama-cloud route
               timeout: 30s
               context:
                 - runtime
@@ -128,3 +131,4 @@ dsh-web:
                 for b in agent-team-profile auto-review schedule-bundle voice-input-bundle; do
                   grep -q "$b" "$P"
                 done
+                grep -q "ollama-cloud" "$D/cordis.patch.yml"

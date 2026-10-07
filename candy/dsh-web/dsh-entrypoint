@@ -36,6 +36,16 @@ TOKEN_FILE="${DSH_HOME_DIR}/web-token"
 # process's launch token (the new one is written before socat starts serving).
 rm -f "${TOKEN_FILE}"
 
+# Seed the volume's ollama-cloud LLM route on FIRST use, from the copy the shared
+# `dsh` candy installs OUTSIDE the named volume. The web profile is seeded by this
+# candy's `data:` entry; the route is shipped by `dsh`, whose build-time ~/.dsh
+# copy is SHADOWED by this volume, so the entrypoint restores it from the durable
+# ~/.local/share/dsh copy (ONE authored file in candy/dsh; no duplicated catalog).
+if [ ! -f "${DSH_HOME_DIR}/cordis.patch.yml" ]; then
+  ROUTE="${HOME_DIR}/.local/share/dsh/cordis.patch.yml"
+  [ -f "${ROUTE}" ] && cp "${ROUTE}" "${DSH_HOME_DIR}/cordis.patch.yml"
+fi
+
 WEB_LOG="$(mktemp)"
 # dsh web's SECOND auth layer is the Host/Origin browser-trust fence: the request
 # `Host` must be loopback or match a `trustedHosts` entry, or EVERY request —
