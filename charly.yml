@@ -138,6 +138,21 @@ dsh-skill:
             tailscale serve --bg --https=3080 http://127.0.0.1:3080   # 1:1; NOT 443
             ```
 
+            **The exposed URL contract — `https://` and a token.** `--https=3080`
+            installs an **HTTPS-only** listener (there is no HTTP one), so a plain
+            `http://<self>.ts.net:3080/` is answered by that TLS server with
+            **`400 Client sent an HTTP request to an HTTPS server.`** Use
+            `https://`. And because `dsh web` authenticates every request, the bare
+            `https://<self>.ts.net:3080/` returns **401** — the URL must carry the
+            launch token, which redeems it (`303`) and sets the authority-scoped
+            cookie. Both together:
+
+            ```bash
+            # the working URL (token from the durable file the entrypoint writes)
+            https://<self>.ts.net:3080/?token=$(cat ~/.dsh/web-token)
+            # or: ~/.local/bin/dsh-web-url [--local|--tailnet] [--open]
+            ```
+
             On a **pod**, the socat forwarder is what makes the published port
             loopback-reaching, so a browser hitting `127.0.0.1:<published>` stays
             on the trusted loopback authority. A pod reached through any
