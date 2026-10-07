@@ -118,7 +118,7 @@ dsh-web:
               http:
                 http: http://127.0.0.1:${HOST_PORT:3081}/
                 status: 401
-            - check: the web profile is seeded with all four experimental-feature bundles
+            - check: the web profile is seeded with all four experimental-feature bundles AND the volume's ollama-cloud route
               timeout: 30s
               context:
                 - runtime
@@ -131,3 +131,4 @@ dsh-web:
                 for b in agent-team-profile auto-review schedule-bundle voice-input-bundle; do
                   grep -q "$b" "$P"
                 done
+                grep -q "ollama-cloud" "$D/cordis.patch.yml"

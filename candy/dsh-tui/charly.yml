@@ -30,10 +30,11 @@ dsh-tui:
             The first-run wizard is pre-recorded and the launchpad disabled, so
             the TUI lands on the chat screen deterministically; the published
             terminal_profile + agent_provide tmux channel let a disposable R10
-            bed launch, snapshot, type into, and read the TUI. The candy writes
-            the `ollama-cloud` LLM route to `~/.dsh/cordis.patch.yml`; the route
-            authenticates with OLLAMA_API_KEY from the dsh credential store (the
-            launch environment, `~/.dsh/.env`, or the config UI) — the key is not
+            bed launch, snapshot, type into, and read the TUI. The `ollama-cloud`
+            LLM route (`~/.dsh/cordis.patch.yml`) now ships from the shared `dsh`
+            candy this one composes — the route authenticates with OLLAMA_API_KEY
+            from the dsh credential store (the launch environment, `~/.dsh/.env`,
+            or the config UI) — the key is not
             part of this candy and a provider turn needs it. Every fact is
             observable: the dsh-tui launcher at ~/.npm-global/bin/dsh-tui, the
             profile manifest at $DSH_HOME/profiles/dsh-tui/package.json,

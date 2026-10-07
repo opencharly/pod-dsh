@@ -34,6 +34,11 @@ dsh:
                 file: ${HOME}/.dsh/cordis.patch.yml
                 exists: true
                 contains: "ollama-cloud"
+            - check: the route is also staged outside the volume so the dsh-web entrypoint can seed a fresh named volume that shadows ~/.dsh
+              file:
+                file: ${HOME}/.local/share/dsh/cordis.patch.yml
+                exists: true
+                contains: "ollama-cloud"
             - check: the dsh binary is installed into the npm global bin directory
               file:
                 file: ${HOME}/.npm-global/bin/dsh
