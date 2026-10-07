@@ -54,22 +54,24 @@ dsh-web:
         volume:
             - name: dsh
               path: "~/.dsh"
-        # Stage the full experimental-feature web profile into the dsh volume at
-        # deploy time. `src` is relative to THIS candy dir; the generator stages
-        # it to /data/dsh/profiles/web (volume + dest) in the image, and the
-        # runtime seeder copies it into the EMPTY `dsh` named volume at
-        # profiles/web — so $DSH_HOME/profiles/web/ holds the four profile files
-        # on first boot. The set is the four shipped bundles dsh offers
-        # switched-off (app-boot OPTIONAL_BUNDLES): Agent Teams, Auto review,
-        # Schedule/Automation tasks, and Voice input — so a fresh pod has every
-        # feature enabled with no network. charly's seeder is `initial` (it gates
-        # on the volume being empty), so a user's later profile edits are kept;
-        # node_modules resolves from the globally-installed dsh, so only the four
-        # small text files are staged.
+        # Stage the full experimental-feature web profile AND the ollama-cloud LLM
+        # route into the dsh volume at deploy time. `src` is relative to THIS
+        # candy dir; with NO `dest`, the staged tree lands at the volume ROOT, so
+        # candy/dsh-web/web-profile/cordis.patch.yml -> ~/.dsh/cordis.patch.yml
+        # (the home-level route, applied to every profile) and
+        # web-profile/profiles/web/* -> ~/.dsh/profiles/web/* (the profile the
+        # web UI boots). charly's seeder copies into the EMPTY `dsh` named volume
+        # — one entry stages both files, since two entries into one volume would
+        # leave the second skipped (the volume is non-empty after the first). The
+        # bundle set is the four shipped bundles dsh offers switched-off (app-boot
+        # OPTIONAL_BUNDLES): Agent Teams, Auto review, Schedule/Automation tasks,
+        # and Voice input — so a fresh pod has every feature enabled with no
+        # network. The seeder is `initial` (gated on volume emptiness), so a
+        # user's later edits are kept; node_modules resolves from the
+        # globally-installed dsh, so only the small text files are staged.
         data:
             - src: web-profile
               volume: dsh
-              dest: profiles/web
         service:
             - name: dsh
               exec: "%(ENV_HOME)s/.local/bin/dsh-entrypoint"
@@ -115,7 +117,7 @@ dsh-web:
               http:
                 http: http://127.0.0.1:${HOST_PORT:3081}/
                 status: 401
-            - check: the web profile is seeded with all four experimental-feature bundles
+            - check: the seeded dsh volume holds the four-bundle web profile AND the ollama-cloud LLM route
               timeout: 30s
               context:
                 - runtime
@@ -128,3 +130,4 @@ dsh-web:
                 for b in agent-team-profile auto-review schedule-bundle voice-input-bundle; do
                   grep -q "$b" "$P"
                 done
+                grep -q "ollama-cloud" "$D/cordis.patch.yml"
