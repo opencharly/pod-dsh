@@ -173,6 +173,52 @@ dsh-skill:
                 - dsh-tui   # CLI + terminal UI
             ```
 
+            ## Plugins and experimental features (the Plugins page)
+
+            Agent Teams, Auto Authorization Review, Automation tasks, and Voice
+            input are **package-bundles**: each is a name in a profile's
+            `dsh.profile.bundles` (`$DSH_HOME/profiles/<name>/package.json`). The
+            Web sidebar's Plugins page toggles one by writing a `disabled:`
+            override into that profile's `cordis.patch.yml` — not by editing the
+            bundle list. **Composition is not activation:** `--dump-config` shows
+            a bundle was composed; only a boot proves it activated. Check both:
+
+            ```bash
+            dsh --profile web --dump-config | grep -E 'agent-team|auto-review|ui-schedule|ui-voice-input'
+            dsh --profile web --port 13080 --no-open   # a failed plugin prints "N entries did not activate: <reason>"
+            ```
+
+            | Feature | Bundle | web | dsh-tui |
+            |---|---|---|---|
+            | Agent Teams | `dsh-experimental-agent-team-profile` | ✅ | ❌ |
+            | Auto review | `dsh-experimental-auto-review` | ✅ | ❌ |
+            | Automation tasks | `dsh-experimental-schedule-bundle` | ✅ | ❌ |
+            | Voice input | `dsh-experimental-voice-input-bundle` | ✅ (needs a model) | ❌ |
+
+            - **Agent Teams** runs in `web`/`headless`: the Lead spawns named
+              teammates, exchanges durable messages, and uses a shared task board.
+              It needs durable session storage (`dsh-session-persistence-jsonl`,
+              in `dsh-base`) and is **durable but PROCESS-LOCAL** — all members
+              share ONE working directory (no worktree isolation), and there is no
+              cross-process/cross-client team.
+            - **Voice input** activates but needs a one-time **241 MB** local
+              SenseVoice model that `dsh` does NOT pre-fetch — the mic appears,
+              and recognition fails until it is prepared. In the UI click
+              *Download and prepare*; to pre-seed (sizes + sha256 are pinned in the
+              package's `runtime/assets.json`), place the verified files under
+              `$DSH_HOME/speech-to-text/sensevoice/models/`:
+              `sensevoice-onnx/model.int8.onnx` (239233841 B), `sensevoice-onnx/tokens.txt`
+              (315894 B), `silero/silero_vad.onnx` (1807522 B).
+            - **The `dsh-tui` profile cannot host these bundles.** The dsh-TUI
+              adapter rejects the root capabilities they require —
+              `Error: dsh-tui: root.effect is unavailable from a plugin activation`
+              — so adding them to the `dsh-tui` profile makes them FAIL to
+              activate (`N entries did not activate`). Keep that profile at
+              `dsh-base` + `dsh-tui`. The dsh-TUI launcher is standalone (it has
+              no remote/attach), so there is **no** Agent-Teams coordination
+              between the TUI and the web GUI: team coordination is within one
+              Web/headless process, not across the two UIs.
+
             ## Used In Boxes
 
             - Composed on demand; requires a builder that declares the npm builder
