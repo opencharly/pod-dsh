@@ -13,26 +13,12 @@ dsh:
             package.json pinning @deepseek-ai/dsh 0.2.0-rc.2, which the npm
             builder installs globally under NPM_CONFIG_PREFIX (~/.npm-global).
             This is the CLI-only candy: the web UI is candy/dsh-web and the
-            terminal UI is candy/dsh-tui. It ships the `ollama-cloud` LLM route
-            (`~/.dsh/cordis.patch.yml`, a home-level dsh patch applied to every
-            profile) so every deploy that composes this candy — web or TUI — has
-            a provider; the route authenticates with OLLAMA_API_KEY from the dsh
-            credential store. Every fact is observable: the dsh
+            terminal UI is candy/dsh-tui. Every fact is observable: the dsh
             binary at ~/.npm-global/bin/dsh, the unpacked package,
             `dsh --version`/`--help`, and node >= 22.19.0.
         require:
             - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
         plan:
-            - run: install the ollama-cloud LLM route as the dsh home-level patch (applies to every profile; shared by all dsh deploys — web and tui)
-              copy: cordis.patch.yml
-              to: "${HOME}/.dsh/cordis.patch.yml"
-              mode: "0644"
-              run_as: "${USER}"
-            - check: the ollama-cloud LLM route is installed as the dsh home-level patch
-              file:
-                file: ${HOME}/.dsh/cordis.patch.yml
-                exists: true
-                contains: "ollama-cloud"
             - check: the dsh binary is installed into the npm global bin directory
               file:
                 file: ${HOME}/.npm-global/bin/dsh
