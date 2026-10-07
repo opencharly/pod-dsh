@@ -5,18 +5,18 @@ nodeLinker: hoisted
 autoInstallPeers: false
 
 # pnpm >= 10 blocks dependency build/install scripts unless explicitly allowed.
-# A DSH profile installs its bundles from this file: the git-hosted community
-# plugins build via their `prepare`, and the native bits (`ssh2`'s optional
-# crypto binding, `cpu-features`) build here too.
+# The four community/native plugins are vendored prebuilt `file:` deps
+# (vendor-tgz/), so they need no build key here; only the two NATIVE bits build
+# — `ssh2`'s optional crypto binding and `cpu-features` (the ~0.0.10 package
+# ships no prebuild).
 #
-# Keyed by BARE NAME. pnpm 10.34.6 accepts the fully-qualified git specifier it
-# prints for the git-hosted plugins, but pnpm 10.33.4 rejects that form with
-# ERR_PNPM_INVALID_VERSION_UNION; a bare name matches the git-hosted dep on BOTH
-# 10.33.4 and 10.34.6, so this file is portable across the layer-nodejs pin.
+# Keyed by BARE NAME, which works on BOTH pnpm 10.33.4 and 10.34.6 (the layer-
+# nodejs pin), so this file is portable across it. A git-specifier key would
+# instead need the fully-qualified form on 10.34.6 and fail on 10.33.4 with
+# ERR_PNPM_INVALID_VERSION_UNION — the coupling recorded in
+# opencharly/layer-nodejs#5. It is moot here now that no git dep remains (the
+# plugins are `file:` deps).
 allowBuilds:
-  "@perrylink/dsh-github": true
-  dsh-git-worktree: true
-  dsh-workspace-enhancement: true
   cpu-features: true
   ssh2: true
 
