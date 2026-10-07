@@ -31,6 +31,8 @@ dsh-skill:
             Covers the web UI's two-layer auth (launch token + Host/Origin browser-trust fence), the
             `--trusted-host` requirement for reverse-proxy / Tailscale exposure, and the 1:1 port-mapping rule.
             Use when working with the dsh CLI or the dsh-web candy.
+        triggers:
+            - "The dsh / DeepSeek Harness CLI or web UI, the `dsh` / `dsh-web` candies, `~/.dsh`, the dsh web UI's launch-token + Host/Origin trust fence, `--trusted-host`, exposing dsh web over Tailscale (`tailscale serve`), or `charly dsh status` web health"
         content: |-
             # dsh -- DeepSeek Harness CLI and web UI
 
@@ -582,6 +584,8 @@ dsh-tui-skill:
             driving contract (unique run-ids, transcript-not-snapshot capture, the
             interactive-submit race) used by the check-dsh-tui-pod R10 bed.
             Use when working with the dsh-TUI terminal UI.
+        triggers:
+            - "The dsh-TUI / dsh-tui terminal UI plugin (`@deepseek-harness-tui/dsh-tui`), the `dsh-tui` / `dst` launcher, the `dsh-tui` dsh profile, `DSH_TUI_NO_LAUNCHPAD`, the terminal:tmux channel, or the check-dsh-tui-pod bed"
         content: |-
             # dsh-tui -- the DeepSeek Harness terminal UI plugin
 
