@@ -14,7 +14,7 @@ tarball — is the built artifact, not source).
 
 | Tarball (in this dir) | Source repo | Pinned commit | SHA-256 of the shipped tarball | `npm pack` reproduces byte-identical? |
 |---|---|---|---|---|
-| `perrylink-dsh-github-0.7.19.tgz` | `github.com/opencharly/dsh-github` (`fix/client-bundle`, PR #2) | `db37b9b6f81a72f884c362ce6f2c04d96bf6bad8` | `d36b994ed341f45f9e1bf44853e88422344cdc5cfe360e4d1c1bd2423f0ddbd5` | YES |
+| `perrylink-dsh-github-0.7.19.tgz` | `github.com/opencharly/dsh-github` (`main`) | `69987edd634f333f4b52ee3896dd07624662fdb8` | `56da1a4066d8dde6299f91c8d65a6f9d34f268b75524f8206df59e3fedc285dd` | YES |
 | `dsh-git-worktree-0.10.0.tgz` | `github.com/opencharly/dsh-git-worktree` (`master`) | `a910ffa0619954d951705a9832c1176890c4dc61` | `a56fd43d69c414bdbc7163998417c1bf29dc8dafd5baaea4a2ebfa7646258818` | YES |
 | `dsh-workspace-enhancement-0.2.3.tgz` | `github.com/opencharly/dsh-workspace-enhancement` (`land/prepare`, PR #1) | `b57db61a18132ba0af275cabbc83eeb2a6f48f21` | `78d3681279ae03eaa98a0d443d1bf98ce6bb2cf9ff946b743249d91850f7f31d` | NO — see below |
 | `dsh-opencharly-0.1.0.tgz` | `github.com/opencharly/dsh-opencharly` (`main`) | `f431b659405e86bc1d7530b3cedf01114eff3dcb` | `293acd7d7c1a7e8709ab661a3df16afa5473597a83357453df3f0f6ae26f35c3` | YES |
