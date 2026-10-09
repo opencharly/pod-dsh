@@ -29,10 +29,9 @@ dsh-web:
             `--trusted-host`; without it every `/api/*` call returns 403 and the
             SPA renders a dead page even though `/` returns 200.
             The candy seeds the web profile with the full experimental-feature
-            set AND the three community plugins (the opencharly forks: @perrylink/
-            dsh-github, dsh-git-worktree, dsh-workspace-enhancement) AND the native
+            set AND the community `dsh-git-worktree` plugin AND the native
             `dsh-opencharly` plugin (git gates, SOUL injection, watch auto-arm).
-            The four community/native plugins are VENDORED PREBUILT under
+            The two plugins are VENDORED PREBUILT under
             `web-profile/vendor-tgz/` and consumed as `file:` deps — so the profile
             install resolves them OFFLINE (no codeload fetch, no per-dep npm-
             install bootstrap), which is what a reproducible candy needs. The
@@ -43,15 +42,15 @@ dsh-web:
             bundles resolve from `$DSH_HOME/profiles/web/node_modules` and a named
             `dsh` volume shadows the image's build-time ~/.dsh, the candy installs
             the profile at BUILD time into the durable ~/.local/share/dsh/
-            profile-home (gcc/make/python3 + node-gyp build only the ssh2 native
-            addon, the one registry dep that compiles), and the entrypoint seeds
+            profile-home (every remaining dep is a prebuilt vendored tarball or
+            pure JS — nothing compiles), and the entrypoint seeds
             the volume from it on first boot. The ollama-cloud LLM route (shipped
             by the shared `dsh` candy) is restored the same way from the durable
             ~/.local/share/dsh copy.
             Every fact is observable: the running service, the persisted token
-            file, the seeded profile manifest listing all ten bundles (base,
-            web-app, the four experimental features, the three community
-            plugins, and the native dsh-opencharly plugin) plus the installed
+            file, the seeded profile manifest listing all eight bundles (base,
+            web-app, the four experimental features, the community
+            dsh-git-worktree plugin, and the native dsh-opencharly plugin) plus the installed
             node_modules and the route, and the HTTP 200 the token-authenticated
             web UI answers on 127.0.0.1:3080.
         require:
@@ -59,25 +58,15 @@ dsh-web:
             - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
         package:
             # socat: the loopback->eth0 forwarder.
-            # gcc/g++/make/python3: the profile install runs node-gyp for ssh2's
-            # optional crypto binding and cpu-features (~0.0.10 ships no prebuild);
-            # pnpm aborts on a non-zero allowed build script. (NOT
-            # layer-build-toolchain — that drags cargo/ffmpeg-devel/wayland-devel
-            # into a web image.)
             # libatomic: pnpm's managed package-manager runtime is a prebuilt
             # binary linked against libatomic.so.1 — absent from a minimal Fedora,
             # so an install dies with "error while loading shared libraries".
             #
-            # NOT golang: the THREE git-hosted plugins are now VENDORED prebuilt
-            # as tarballs under web-profile/vendor-tgz/ (file: deps), so nothing builds a Go core
-            # at install time — that was only needed when `dsh-workspace-enhancement`
-            # was a git dep building `core/dist` via `go`. (`dsh-opencharly` was
-            # never a git dep; it is the native plugin, also vendored prebuilt.)
+            # No native toolchain (gcc/g++/make/python3/node-gyp) and NOT golang:
+            # both remaining plugins are VENDORED prebuilt as tarballs under
+            # web-profile/vendor-tgz/ (`file:` deps), so nothing compiles or builds
+            # a Go core at install time.
             - socat
-            - gcc
-            - gcc-c++
-            - make
-            - python3
             - libatomic
         env:
             DSH_HOME: "~/.dsh"
@@ -98,10 +87,11 @@ dsh-web:
         # profiles/web. The set is the four shipped bundles dsh offers
         # switched-off (app-boot OPTIONAL_BUNDLES): Agent Teams, Auto review,
         # Schedule/Automation tasks, and Voice input. The manifest also carries
-        # the three community plugins (vendored prebuilt as tarballs under web-profile/vendor-tgz)
-        # and the native dsh-opencharly plugin. The candy installs the profile at
-        # BUILD time so `node_modules` (the vendored plugins' `lib/`, the ssh2
-        # crypto binding) is present with no network at run time. charly's `data:`
+        # the community dsh-git-worktree plugin (vendored prebuilt as a tarball
+        # under web-profile/vendor-tgz) and the native dsh-opencharly plugin. The
+        # candy installs the profile at
+        # BUILD time so `node_modules` (the vendored plugins' `lib/`) is present
+        # with no network at run time. charly's `data:`
         # seeder is `initial` (it gates on the volume being empty), so a user's
         # later profile edits are kept; the entrypoint seeds the installed tree on
         # first boot from the durable ~/.local/share/dsh/profile-home copy (the
@@ -119,27 +109,14 @@ dsh-web:
               enable: true
               scope: system
         plan:
-            - # ssh2's optional crypto binding and cpu-features build their native
-              # addons with a bare `node-gyp` on PATH. A minimal Fedora has no
-              # node-gyp RPM and npm does not expose its bundled copy, so without
-              # this the native bits silently fail to build (ssh2 falls back to
-              # pure JS) rather than erroring.
-              run: install node-gyp globally for the profile's native addon builds
-              command: |
-                H="$(getent passwd "$(id -u)" | cut -d: -f6)"
-                export PATH="$H/.npm-global/bin:$PATH"
-                npm install -g node-gyp
-                command -v node-gyp
-              run_as: "${USER}"
             - # Install the web profile (manifest + node_modules) into a durable
               # location OUTSIDE the named dsh volume, which shadows ~/.dsh at run
               # time. The manifest is the `data:` payload staged at
-              # /data/dsh/profiles/web; the four community/native plugins are
+              # /data/dsh/profiles/web; the two plugins are
               # VENDORED PREBUILT as tarballs under vendor-tgz/ and consumed as `file:` deps, so
               # the install resolves them OFFLINE — no codeload fetch, no per-dep
-              # npm-install bootstrap. The only compile left is ssh2's optional
-              # crypto binding (node-gyp, installed just above, over the gcc/make
-              # the candy declares). Done here, at build time, so a fresh container
+              # npm-install bootstrap, and nothing compiles. Done here, at build
+              # time, so a fresh container
               # needs no network. DSH_HOME must point at the staging parent so
               # `dsh plugin` resolves the same profile dir the entrypoint seeds.
               run: install the web profile (bundles + vendored plugins) into a durable, non-volume path
@@ -189,7 +166,7 @@ dsh-web:
               http:
                 http: http://127.0.0.1:${HOST_PORT:3081}/
                 status: 401
-            - check: the web profile is seeded with all four experimental-feature bundles, the three community plugins, the native dsh-opencharly plugin, and the volume's ollama-cloud route
+            - check: the web profile is seeded with all four experimental-feature bundles, the community dsh-git-worktree plugin, the native dsh-opencharly plugin, and the volume's ollama-cloud route
               timeout: 30s
               context:
                 - runtime
@@ -199,11 +176,14 @@ dsh-web:
                 [ -n "$D" ] || D="$H/.dsh"
                 P="$D/profiles/web/package.json"
                 test -f "$P"
-                for b in agent-team-profile auto-review schedule-bundle voice-input-bundle @perrylink/dsh-github dsh-git-worktree dsh-workspace-enhancement dsh-opencharly; do
+                for b in agent-team-profile auto-review schedule-bundle voice-input-bundle dsh-git-worktree dsh-opencharly; do
                   grep -q "$b" "$P"
                 done
+                # The two dropped community plugins must NOT come back: a revert
+                # that re-lists either bundle in the seeded manifest FAILS here.
+                ! grep -qE '@perrylink/dsh-github|dsh-workspace-enhancement' "$P"
                 grep -q "ollama-cloud" "$D/cordis.patch.yml"
-            - check: the web profile resolves the four plugins OFFLINE from the vendored tarballs (fails if reverted to the git deps)
+            - check: the web profile resolves the two plugins OFFLINE from the vendored tarballs (fails if reverted to the git deps)
               timeout: 30s
               context:
                 - runtime
@@ -215,13 +195,13 @@ dsh-web:
                 # Every plugin dep is a file: dep on a vendored tarball — no
                 # `github:`/`git+`/`codeload` specifier survives. A revert to the
                 # git deps names the plugin but not this path, so it FAILS here.
-                test "$(grep -c '"file:./vendor-tgz/' "$P")" = 4
+                test "$(grep -c '"file:./vendor-tgz/' "$P")" = 2
                 ! grep -qE '"(github|git\+|https?):' "$P"
                 # The vendored tarballs are present and their bytes match the
                 # committed manifest (SHA256SUMS sits beside them).
                 cd "$D/profiles/web/vendor-tgz"
                 sha256sum -c SHA256SUMS
-            - check: the web profile's node_modules carries all four vendored plugins' built lib/ (so the DSH loader can import them)
+            - check: the web profile's node_modules carries both vendored plugins' built lib/ (so the DSH loader can import them)
               timeout: 30s
               context:
                 - runtime
@@ -230,7 +210,5 @@ dsh-web:
                 D="$DSH_HOME"
                 [ -n "$D" ] || D="$H/.dsh"
                 N="$D/profiles/web/node_modules"
-                test -f "$N/@perrylink/dsh-github/lib/client.js"
                 test -f "$N/dsh-git-worktree/lib/index.js"
-                test -f "$N/dsh-workspace-enhancement/lib/index.js"
                 test -f "$N/dsh-opencharly/lib/index.js"
