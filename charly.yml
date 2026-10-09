@@ -194,24 +194,21 @@ dsh-skill:
             | Auto review | `dsh-experimental-auto-review` | ✅ | ❌ |
             | Automation tasks | `dsh-experimental-schedule-bundle` | ✅ | ❌ |
             | Voice input | `dsh-experimental-voice-input-bundle` | ✅ (needs a model) | ❌ |
-            | GitHub (community) | `@perrylink/dsh-github` | ✅ | ❌ |
             | git-worktree (community) | `dsh-git-worktree` | ✅ | ❌ |
-            | workspace-enhancement (community) | `dsh-workspace-enhancement` | ✅ | ❌ |
             | OpenCharly (native) | `dsh-opencharly` | ✅ | ❌ |
 
-            The `dsh-web` profile ships **ten** bundles: `dsh-base`, `dsh-web-app`,
-            the four experimental features, the three community plugins
-            (`@perrylink/dsh-github`, `dsh-git-worktree`,
-            `dsh-workspace-enhancement`), and the native `dsh-opencharly` plugin.
-            All four plugins are VENDORED PREBUILT as tarballs under
+            The `dsh-web` profile ships **eight** bundles: `dsh-base`, `dsh-web-app`,
+            the four experimental features, the community `dsh-git-worktree`
+            plugin, and the native `dsh-opencharly` plugin.
+            Both plugins are VENDORED PREBUILT as tarballs under
             `candy/dsh-web/web-profile/vendor-tgz/` and consumed as `file:` deps, so
             the profile install resolves them OFFLINE (no codeload fetch, no
             per-dep npm-install bootstrap — the flake `pod-dsh#26` recorded).
             Each tarball's source repo+commit and SHA-256 are recorded in
-            `vendor-tgz/README.md`, with the four hashes in
+            `vendor-tgz/README.md`, with the two hashes in
             `vendor-tgz/SHA256SUMS` (verified in the volume by the bed).
-            `dsh-opencharly` is server-only (no browser client); the others ship a
-            `lib/client.js` browser half. All are installed at image BUILD time
+            `dsh-opencharly` is server-only (no browser client); the other ships a
+            `lib/client.js` browser half. Both are installed at image BUILD time
             into `~/.local/share/dsh/profile-home` and seeded into the `dsh` volume
             by the entrypoint — because profile bundles resolve from
             `$DSH_HOME/profiles/web/node_modules`, which the named volume shadows.
@@ -242,7 +239,7 @@ dsh-skill:
 
             The `dsh-web` candy **stages the enabled profile** into the `dsh`
             volume at deploy time (a `data:` entry → `$DSH_HOME/profiles/web`), so
-            a freshly deployed pod has all ten bundles composed without any
+            a freshly deployed pod has all eight bundles composed without any
             in-UI toggling. The `dsh-tui` candy keeps its profile at base + the
             plugin. This is composition, not activation: the web UI's own boot
             proves they activate (a failed one prints `N entries did not
@@ -370,7 +367,7 @@ check-dsh-pod:
               http:
                 http: "http://127.0.0.1:${HOST_PORT:3081}/"
                 status: 401
-            - check: the web profile is seeded with all four experimental-feature bundles, the three community plugins, the native dsh-opencharly plugin, AND the volume's ollama-cloud route
+            - check: the web profile is seeded with all four experimental-feature bundles, the community dsh-git-worktree plugin, the native dsh-opencharly plugin, AND the volume's ollama-cloud route
               id: dsh-web-profile-seeded
               exit_status: 0
               context: [runtime]
@@ -380,11 +377,14 @@ check-dsh-pod:
                 [ -n "$D" ] || D="$H/.dsh"
                 P="$D/profiles/web/package.json"
                 test -f "$P"
-                for b in agent-team-profile auto-review schedule-bundle voice-input-bundle @perrylink/dsh-github dsh-git-worktree dsh-workspace-enhancement dsh-opencharly; do
+                for b in agent-team-profile auto-review schedule-bundle voice-input-bundle dsh-git-worktree dsh-opencharly; do
                   grep -q "$b" "$P"
                 done
+                # The two dropped community plugins must NOT come back: a revert
+                # that re-lists either bundle in the seeded manifest FAILS here.
+                ! grep -qE '@perrylink/dsh-github|dsh-workspace-enhancement' "$P"
                 grep -q "ollama-cloud" "$D/cordis.patch.yml"
-            - check: the web profile resolves the four plugins OFFLINE from the vendored tarballs (fails if reverted to the git deps)
+            - check: the web profile resolves the two plugins OFFLINE from the vendored tarballs (fails if reverted to the git deps)
               id: dsh-web-profile-vendored
               exit_status: 0
               context: [runtime]
@@ -396,7 +396,7 @@ check-dsh-pod:
                 # Every plugin dep is a file: dep on a vendored tarball — no
                 # `github:`/`git+`/`https:` specifier survives. A revert to the
                 # git deps names the plugin but not this path, so it FAILS here.
-                test "$(grep -c '"file:./vendor-tgz/' "$P")" = 4
+                test "$(grep -c '"file:./vendor-tgz/' "$P")" = 2
                 ! grep -qE '"(github|git\+|https?):' "$P"
                 # The vendored tarballs are present and their bytes match the
                 # committed manifest (SHA256SUMS sits beside them).

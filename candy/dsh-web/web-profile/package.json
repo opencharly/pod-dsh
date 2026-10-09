@@ -2,9 +2,7 @@
   "name": "dsh-profile-web",
   "private": true,
   "dependencies": {
-    "@perrylink/dsh-github": "file:./vendor-tgz/perrylink-dsh-github-0.7.19.tgz",
     "dsh-git-worktree": "file:./vendor-tgz/dsh-git-worktree-0.10.0.tgz",
-    "dsh-workspace-enhancement": "file:./vendor-tgz/dsh-workspace-enhancement-0.2.3.tgz",
     "dsh-opencharly": "file:./vendor-tgz/dsh-opencharly-0.1.0.tgz"
   },
   "dsh": {
@@ -16,9 +14,7 @@
         "@deepseek-ai/dsh-experimental-auto-review",
         "@deepseek-ai/dsh-experimental-schedule-bundle",
         "@deepseek-ai/dsh-experimental-voice-input-bundle",
-        "@perrylink/dsh-github",
         "dsh-git-worktree",
-        "dsh-workspace-enhancement",
         "dsh-opencharly"
       ]
     }
